@@ -1,4 +1,4 @@
-use super::{Mos6502, StepResult};
+use super::{Mos6502, StatReg, StepResult};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(super) enum AddrMode {
@@ -137,6 +137,7 @@ impl Mos6502 {
     }
 
     pub fn step(&mut self) -> StepResult {
+        let oldpc = self.pc;
         let opcode = self.read8pc();
         let mode = ADDR_MODES[opcode as usize];
         let instr = INSTRS[opcode as usize];
@@ -192,10 +193,19 @@ impl Mos6502 {
         use Instr::*;
         match instr {
             VMC => return self.handle_vmcall(imm8),
-            _ => todo!(),
+            LDA => {
+                self.a = val8!();
+                self.setp(self.a);
+            }
+            _ => eprintln!("{} NYI ({:02X})", self.instr_repr(oldpc), opcode),
         }
 
         self.advance_clk(INSTR_CYCLES[opcode as usize] as usize);
         StepResult::Success
+    }
+
+    fn setp(&mut self, val: u8) {
+        self.p.set(StatReg::Z, val == 0);
+        self.p.set(StatReg::N, (val as i8) < 0);
     }
 }

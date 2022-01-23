@@ -31,13 +31,13 @@ impl Mos6502 {
     fn handle_dump(&mut self) -> StepResult {
         println!("EXIT STATE:");
         println!("PC: 0x{:04x}", self.pc);
-        println!("PC: 0x{:04x}", self.sp);
+        println!("SP: 0x{:04x}", self.sp);
         println!(" A: 0x{:02x}", self.a);
         println!(" X: 0x{:02x}", self.x);
         println!(" Y: 0x{:02x}", self.y);
         println!(" P: 0x{:02x}", self.p.bits);
 
-        for addr in (0..0xC000).step_by(4) {
+        for addr in (0..0x3000).step_by(4) {
             print!("  ${addr:04x}:");
             for i in 0..4 {
                 let v = self.read8(addr + i);

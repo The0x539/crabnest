@@ -67,6 +67,6 @@ impl Memory {
 
 impl Reset for Memory {
     fn reset(&mut self) {
-        self.bytes.fill(0);
+        self.bytes.fill(0xFF);
     }
 }

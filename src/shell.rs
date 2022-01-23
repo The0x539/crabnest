@@ -111,7 +111,7 @@ pub fn run_shell(cpu: R<Mos6502>, interactive: bool) {
             Some("") => cmd_cont(cpu, &mut breakpoints),
             None => {
                 SIGINT_RECEIVED.store(false, Ordering::Relaxed);
-                todo!()
+                cmd_cont(cpu, &mut breakpoints);
             }
             Some(line) => {
                 rl.add_history_entry(line);
