@@ -5,10 +5,12 @@ use crate::reset_manager::ResetManager;
 use crate::timekeeper::Timekeeper;
 use crate::{r, R};
 
+mod isa;
+
 pub const CLKDIVISOR: u64 = 12;
 
 bitflags! {
-    struct StatReg: u8 {
+    pub struct StatReg: u8 {
         const C = 0b00000001;
         const Z = 0b00000010;
         const I = 0b00000100;
@@ -20,7 +22,7 @@ bitflags! {
     }
 }
 
-enum Intr {
+pub enum Intr {
     None,
     Irq,
     Nmi,
@@ -43,18 +45,26 @@ enum AddrMode {
     ZeroPY,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum StepResult {
+    Success,
+    UnhandledVmcall,
+    IllegalInstruction,
+    Vmbreak,
+}
+
 pub struct Mos6502 {
     pub(super) bus: R<MemBus>,
     pub(super) tk: R<Timekeeper>,
 
-    pc: u16,
-    sp: u8,
-    a: u8,
-    x: u8,
-    y: u8,
-    p: StatReg,
+    pub pc: u16,
+    pub sp: u8,
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    pub p: StatReg,
 
-    intr_status: Intr,
+    pub intr_status: Intr,
 
     last_branch_delay: u64,
     last_takeover_delay: u64,
@@ -104,5 +114,13 @@ impl Mos6502 {
 
         drop(bus);
         self.advance_clk(8);
+    }
+
+    pub fn raise_irq(&mut self) {
+        self.intr_status = Intr::Irq;
+    }
+
+    pub fn raise_nmi(&mut self) {
+        self.intr_status = Intr::Nmi;
     }
 }
