@@ -154,8 +154,20 @@ impl Mos6502 {
         self.sp -= 1;
     }
 
+    pub fn push16(&mut self, val: u16) {
+        let [lo, hi] = val.to_le_bytes();
+        self.push8(hi);
+        self.push8(lo);
+    }
+
     pub fn pop8(&mut self) -> u8 {
         self.sp += 1;
         self.read8(0x100 + self.sp as u16)
+    }
+
+    pub fn pop16(&mut self) -> u16 {
+        let lo = self.pop8();
+        let hi = self.pop8();
+        u16::from_le_bytes([lo, hi])
     }
 }

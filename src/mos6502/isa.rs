@@ -211,10 +211,37 @@ impl Mos6502 {
                 self.setp(self.$dst);
             }};
         }
+        macro_rules! compare {
+            ($reg:ident) => {{
+                let val = val8!();
+                self.setc(self.$reg >= val);
+                self.setp(self.$reg - val);
+            }};
+        }
+        macro_rules! branch {
+            ($flag:ident, $expected:literal) => {{
+                if self.p.contains(StatReg::$flag) == $expected {
+                    self.pc = addr + 1;
+                }
+            }};
+        }
 
         use Instr::*;
         match instr {
             VMC => return self.handle_vmcall(imm8),
+
+            BRK => {
+                self.push16(self.pc + 1);
+                self.push8((self.p | StatReg::B).bits);
+                self.pc = self.read16(0xFFFE);
+            }
+
+            RTI => {
+                self.p.bits = self.pop8();
+                self.pc = self.pop16() - 1;
+            }
+
+            NOP => (),
 
             // loads
             LDA => {
@@ -246,8 +273,8 @@ impl Mos6502 {
             // arithmetic
             ADC => {
                 let addend = val8!();
-                let sum = self.a as u16 + addend as u16 + self.p.contains(StatReg::C) as u16;
-                self.p.set(StatReg::C, sum > 0xFF);
+                let sum = self.a as u16 + addend as u16 + self.getc() as u16;
+                self.setc(sum > 0xFF);
                 self.p.set(StatReg::V, sum > 0x7F && addend <= 0x7F); // ???
                 self.a = sum as u8;
                 self.setp(self.a);
@@ -255,9 +282,9 @@ impl Mos6502 {
             SBC => {
                 let a = self.a as i16;
                 let b = val8!() as i16;
-                let c = (!self.p.contains(StatReg::C)) as i16;
+                let c = 1 - self.getc() as i16;
                 let diff = a - b - c;
-                self.p.set(StatReg::C, diff >= 0);
+                self.setc(diff >= 0);
                 self.a = diff as u8;
                 self.setp(self.a);
             }
@@ -271,10 +298,36 @@ impl Mos6502 {
                 self.a |= val8!();
                 self.setp(self.a);
             }
+            EOR => {
+                self.a ^= val8!();
+                self.setp(self.a);
+            }
+
+            // bitshift ops
             ASL => {
                 let mut val = val8!();
-                self.p.set(StatReg::C, (val & 0x80 != 0) as bool);
+                self.setc(val & 0x80 != 0);
                 val <<= 1;
+                set8!(val);
+            }
+            LSR => {
+                let mut val = val8!();
+                self.setc(val & 0x01 != 0);
+                val >>= 1;
+                set8!(val);
+            }
+            ROL => {
+                let mut val = val8!();
+                let carry = self.getc();
+                self.setc(val & 0x80 != 0);
+                nval = (val << 1) | carry;
+                set8!(val);
+            }
+            ROR => {
+                let mut val = val8!();
+                let carry = self.getc();
+                self.setc(val & 0x01 != 0);
+                val = (val >> 1) | (carry << 7);
                 set8!(val);
             }
 
@@ -324,7 +377,37 @@ impl Mos6502 {
                 self.p.remove(StatReg::B);
             }
 
-            NOP => (),
+            // jumps
+            JMP => self.pc = addr,
+            JSR => {
+                self.push16(self.pc - 1);
+                self.pc = addr;
+            }
+            RTS => {
+                self.pc = self.pop16() + 1;
+            }
+
+            // comparison
+            CMP => compare!(a),
+            CPX => compare!(x),
+            CPY => compare!(y),
+
+            // branches
+            BCC => branch!(C, false),
+            BCS => branch!(C, true),
+            BNE => branch!(Z, false),
+            BEQ => branch!(Z, true),
+            BPL => branch!(N, false),
+            BMI => branch!(N, true),
+            BVC => branch!(V, false),
+            BVS => branch!(V, true),
+
+            BIT => {
+                let val = val8!();
+                self.p.set(StatReg::N, val & 0x80 != 0);
+                self.p.set(StatReg::V, val & 0x40 != 0);
+                self.p.set(StatReg::Z, val == self.a);
+            }
 
             _ => eprintln!("{} NYI ({:02X})", self.instr_repr(oldpc), opcode),
         }
@@ -336,5 +419,13 @@ impl Mos6502 {
     fn setp(&mut self, val: u8) {
         self.p.set(StatReg::Z, val == 0);
         self.p.set(StatReg::N, (val as i8) < 0);
+    }
+
+    fn setc(&mut self, val: bool) {
+        self.p.set(StatReg::C, val);
+    }
+
+    fn getc(&self) -> u8 {
+        self.p.contains(StatReg::C) as u8
     }
 }
