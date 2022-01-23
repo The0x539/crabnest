@@ -12,6 +12,7 @@ mod membus;
 mod memory;
 mod mos6502;
 mod reset_manager;
+mod shell;
 mod timekeeper;
 
 use memory::Memory;
@@ -32,7 +33,7 @@ fn hawknest_rom_load(
     mut f: File,
     _path: &Path,
     rm: &R<ResetManager>,
-    cpu: &R<Mos6502<'_>>,
+    cpu: &R<Mos6502>,
 ) -> io::Result<()> {
     let cpu = cpu.borrow_mut();
     let bus = &mut *cpu.bus.borrow_mut();
@@ -50,7 +51,7 @@ fn hawknest_rom_load(
 fn load_rom(
     path: &Path,
     rm: &R<ResetManager>,
-    cpu: &R<Mos6502<'_>>,
+    cpu: &R<Mos6502>,
     _palette_path: &Path,
     _cscheme_path: &Path,
     _scale: u32,
@@ -61,14 +62,15 @@ fn load_rom(
     f.read_exact(&mut magic)?;
     if magic == HAWKNEST_MAGIC {
         hawknest_rom_load(f, path, rm, cpu)?;
+        Ok(())
     } else if magic == INES_MAGIC {
         todo!()
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{path:?} does not appear to be in a valid ROM format"),
+        ))
     }
-
-    Err(io::Error::new(
-        io::ErrorKind::InvalidData,
-        format!("{path:?} does not appear to be in a valid ROM format"),
-    ))
 }
 
 #[derive(Parser, Debug)]
@@ -108,6 +110,8 @@ fn main() -> io::Result<()> {
 
     rm.borrow_mut().issue_reset();
     cpu.borrow_mut().reset();
+    cpu.borrow().tk.borrow_mut().pause();
+    shell::run_shell(cpu, args.interactive);
 
     Ok(())
 }

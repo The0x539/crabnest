@@ -5,6 +5,8 @@ use crate::reset_manager::ResetManager;
 use crate::timekeeper::Timekeeper;
 use crate::{r, R};
 
+pub const CLKDIVISOR: u64 = 12;
+
 bitflags! {
     struct StatReg: u8 {
         const C = 0b00000001;
@@ -41,9 +43,9 @@ enum AddrMode {
     ZeroPY,
 }
 
-pub struct Mos6502<'a> {
-    bus: R<MemBus>,
-    tk: R<Timekeeper>,
+pub struct Mos6502 {
+    pub(super) bus: R<MemBus>,
+    pub(super) tk: R<Timekeeper>,
 
     pc: u16,
     sp: u8,
@@ -57,17 +59,17 @@ pub struct Mos6502<'a> {
     last_branch_delay: u64,
     last_takeover_delay: u64,
 
-    paravirt_args: &'a [&'a str],
+    paravirt_args: Vec<String>,
 }
 
-impl<'a> Mos6502<'a> {
-    pub fn new(rm: &R<ResetManager>, tk: &R<Timekeeper>, paravirt_args: &'a [&'a str]) -> R<Self> {
+impl Mos6502 {
+    pub fn new(rm: &R<ResetManager>, tk: &R<Timekeeper>, paravirt_args: &[&str]) -> R<Self> {
         let bus = MemBus::new(rm);
         let tk = tk.clone();
         let cpu = Self {
             bus,
             tk,
-            paravirt_args,
+            paravirt_args: paravirt_args.iter().map(|&s| s.to_owned()).collect(),
             pc: 0,
             sp: 0,
             a: 0,
@@ -79,5 +81,28 @@ impl<'a> Mos6502<'a> {
             last_takeover_delay: 0,
         };
         r(cpu)
+    }
+
+    pub fn advance_clk(&mut self, ncycles: usize) {
+        self.tk
+            .borrow_mut()
+            .advance_clk(ncycles as u64 * CLKDIVISOR);
+    }
+
+    pub fn reset(&mut self) {
+        let mut bus = self.bus.borrow_mut();
+        let pc_lo = bus.read(0xfffc);
+        let pc_hi = bus.read(0xfffd);
+        self.pc = u16::from_le_bytes([pc_lo, pc_hi]);
+
+        self.a = 0;
+        self.x = 0;
+        self.y = 0;
+
+        self.sp = 0xfd;
+        self.p.bits = 0x34;
+
+        drop(bus);
+        self.advance_clk(8);
     }
 }

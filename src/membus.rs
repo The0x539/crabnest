@@ -68,7 +68,8 @@ impl MemBus {
                 unmixed_val = handler.borrow_mut().read(final_addr as u16, &mut lane_mask);
             }
             ReadMapping::Data { mem, start } => {
-                unmixed_val = mem.borrow().get(addr + *start);
+                let final_addr = addr % PAGESIZE as u16 + *start;
+                unmixed_val = mem.borrow().get(final_addr);
             }
         }
 
@@ -87,7 +88,8 @@ impl MemBus {
                 handler.borrow_mut().write(final_addr as u16, val);
             }
             WriteMapping::Data { mem, start } => {
-                mem.borrow_mut().set(addr + *start, val);
+                let final_addr = addr % PAGESIZE as u16 + *start;
+                mem.borrow_mut().set(final_addr, val);
             }
         }
     }

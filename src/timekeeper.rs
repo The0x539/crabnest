@@ -64,15 +64,15 @@ impl Timekeeper {
     }
 
     pub fn sync(&mut self) {
-        todo!()
+        // TODO
     }
 
     pub fn pause(&mut self) {
-        todo!()
+        // TODO
     }
 
     pub fn resume(&mut self) {
-        todo!()
+        // TODO
     }
 }
 
