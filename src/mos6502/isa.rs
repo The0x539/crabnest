@@ -180,6 +180,7 @@ impl Mos6502 {
                 }
             };
         }
+        /*
         macro_rules! val16 {
             () => {
                 match mode {
@@ -189,14 +190,142 @@ impl Mos6502 {
                 }
             };
         }
+        */
+        macro_rules! set8 {
+            ($val:ident) => {
+                match mode {
+                    AddrMode::Acc => {
+                        self.a = $val;
+                        self.setp($val);
+                    }
+                    _ => {
+                        self.write8(addr, $val);
+                        self.setp($val);
+                    }
+                }
+            };
+        }
+        macro_rules! transfer {
+            ($src:ident -> $dst:ident) => {{
+                self.$dst = self.$src;
+                self.setp(self.$dst);
+            }};
+        }
 
         use Instr::*;
         match instr {
             VMC => return self.handle_vmcall(imm8),
+
+            // loads
             LDA => {
                 self.a = val8!();
                 self.setp(self.a);
             }
+            LDX => {
+                self.x = val8!();
+                self.setp(self.x);
+            }
+            LDY => {
+                self.y = val8!();
+                self.setp(self.y);
+            }
+
+            // stores
+            STA => self.write8(addr, self.a),
+            STX => self.write8(addr, self.x),
+            STY => self.write8(addr, self.y),
+
+            // transfers
+            TAX => transfer!(a -> x),
+            TXA => transfer!(x -> a),
+            TAY => transfer!(a -> y),
+            TYA => transfer!(y -> a),
+            TSX => transfer!(sp -> x),
+            TXS => transfer!(x -> sp),
+
+            // arithmetic
+            ADC => {
+                let addend = val8!();
+                let sum = self.a as u16 + addend as u16 + self.p.contains(StatReg::C) as u16;
+                self.p.set(StatReg::C, sum > 0xFF);
+                self.p.set(StatReg::V, sum > 0x7F && addend <= 0x7F); // ???
+                self.a = sum as u8;
+                self.setp(self.a);
+            }
+            SBC => {
+                let a = self.a as i16;
+                let b = val8!() as i16;
+                let c = (!self.p.contains(StatReg::C)) as i16;
+                let diff = a - b - c;
+                self.p.set(StatReg::C, diff >= 0);
+                self.a = diff as u8;
+                self.setp(self.a);
+            }
+
+            // bitwise ops
+            AND => {
+                self.a &= val8!();
+                self.setp(self.a);
+            }
+            ORA => {
+                self.a |= val8!();
+                self.setp(self.a);
+            }
+            ASL => {
+                let mut val = val8!();
+                self.p.set(StatReg::C, (val & 0x80 != 0) as bool);
+                val <<= 1;
+                set8!(val);
+            }
+
+            // memory inc/dec
+            INC => {
+                let v = val8!() + 1;
+                set8!(v);
+            }
+            DEC => {
+                let v = val8!() - 1;
+                set8!(v);
+            }
+
+            // register inc/dec
+            INX => {
+                self.x += 1;
+                self.setp(self.x);
+            }
+            DEX => {
+                self.x -= 1;
+                self.setp(self.x);
+            }
+            INY => {
+                self.y += 1;
+                self.setp(self.y);
+            }
+            DEY => {
+                self.y -= 1;
+                self.setp(self.y);
+            }
+
+            // flag setters
+            SEC => self.p.insert(StatReg::C),
+            CLC => self.p.remove(StatReg::C),
+            SED => self.p.insert(StatReg::D),
+            CLD => self.p.remove(StatReg::D),
+
+            // stack ops
+            PHA => self.push8(self.a),
+            PLA => {
+                self.a = self.pop8();
+                self.setp(self.a);
+            }
+            PHP => self.push8((self.p | StatReg::B).bits),
+            PLP => {
+                self.p.bits = self.pop8();
+                self.p.remove(StatReg::B);
+            }
+
+            NOP => (),
+
             _ => eprintln!("{} NYI ({:02X})", self.instr_repr(oldpc), opcode),
         }
 

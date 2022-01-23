@@ -10,12 +10,9 @@ pub trait Timed: 'static {
 pub struct Timekeeper {
     timers: Vec<R<dyn Timed>>,
 
-    #[allow(dead_code)]
     t_ref: u32,
-    #[allow(dead_code)]
     t_pause: u32,
 
-    #[allow(dead_code)]
     clk_period: f64,
     clk_cyclenum: u64,
 }

@@ -144,4 +144,18 @@ impl Mos6502 {
         let val = (hi << 8) as u16 | lo;
         val
     }
+
+    pub fn write8(&mut self, addr: u16, val: u8) {
+        self.bus.borrow_mut().write(addr, val);
+    }
+
+    pub fn push8(&mut self, val: u8) {
+        self.write8(0x100 + self.sp as u16, val);
+        self.sp -= 1;
+    }
+
+    pub fn pop8(&mut self) -> u8 {
+        self.sp += 1;
+        self.read8(0x100 + self.sp as u16)
+    }
 }

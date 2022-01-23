@@ -1,4 +1,5 @@
 #![deny(rust_2018_idioms)]
+#![allow(dead_code)]
 
 use std::cell::RefCell;
 use std::fs::File;
