@@ -180,17 +180,6 @@ impl Mos6502 {
                 }
             };
         }
-        /*
-        macro_rules! val16 {
-            () => {
-                match mode {
-                    AddrMode::Acc => self.a as u16,
-                    AddrMode::Imm => imm8 as u16,
-                    _ => self.read16(addr),
-                }
-            };
-        }
-        */
         macro_rules! set8 {
             ($val:ident) => {
                 match mode {
