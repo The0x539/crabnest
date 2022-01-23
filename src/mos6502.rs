@@ -28,23 +28,6 @@ pub enum Intr {
     Nmi,
 }
 
-enum AddrMode {
-    None,
-    Abs,
-    AbsX,
-    AbsY,
-    Acc,
-    Imm,
-    Impl,
-    IdxInd,
-    Ind,
-    IndIdx,
-    Rel,
-    ZeroP,
-    ZeroPX,
-    ZeroPY,
-}
-
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum StepResult {
     Success,
@@ -122,5 +105,27 @@ impl Mos6502 {
 
     pub fn raise_nmi(&mut self) {
         self.intr_status = Intr::Nmi;
+    }
+
+    fn read8(&self, addr: u16) -> u8 {
+        self.bus.borrow_mut().read(addr)
+    }
+
+    fn read16(&self, addr: u16) -> u16 {
+        let lo = self.read8(addr);
+        let hi = self.read8(addr + 1);
+        u16::from_le_bytes([lo, hi])
+    }
+
+    fn read8pc(&mut self) -> u8 {
+        let v = self.read8(self.pc);
+        self.pc += 1;
+        v
+    }
+
+    fn read16pc(&mut self) -> u16 {
+        let v = self.read16(self.pc);
+        self.pc += 2;
+        v
     }
 }
