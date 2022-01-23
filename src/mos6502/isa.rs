@@ -139,8 +139,63 @@ impl Mos6502 {
     pub fn step(&mut self) -> StepResult {
         let opcode = self.read8pc();
         let mode = ADDR_MODES[opcode as usize];
+        let instr = INSTRS[opcode as usize];
 
         let mut addr = 0;
         let mut imm8 = 0;
+
+        match mode {
+            AddrMode::Abs => addr = self.read16pc(),
+            AddrMode::AbsX => addr = self.read16pc() + self.x as u16,
+            AddrMode::AbsY => addr = self.read16pc() + self.y as u16,
+            AddrMode::Acc | AddrMode::Impl => (),
+            AddrMode::Imm => imm8 = self.read8pc(),
+            AddrMode::Ind => {
+                let ind_addr = self.read16pc();
+                addr = self.buggy_read16(ind_addr);
+            }
+            AddrMode::IdxInd => {
+                let ind_addr = self.read8pc() as u16 + self.x as u16;
+                addr = self.read16(ind_addr);
+            }
+            AddrMode::IndIdx => {
+                let ind_addr = self.read8pc() as u16;
+                addr = self.read16(ind_addr) + self.y as u16;
+            }
+            AddrMode::Rel => addr = (self.pc as i16 + self.read8pc() as i8 as i16) as u16,
+            AddrMode::ZeroP => addr = self.read8pc() as u16,
+            AddrMode::ZeroPX => addr = (self.read8pc() + self.x) as u16,
+            AddrMode::ZeroPY => addr = (self.read8pc() + self.y) as u16,
+
+            AddrMode::None => return StepResult::IllegalInstruction,
+        }
+
+        macro_rules! val8 {
+            () => {
+                match mode {
+                    AddrMode::Acc => self.a,
+                    AddrMode::Imm => imm8,
+                    _ => self.read8(addr),
+                }
+            };
+        }
+        macro_rules! val16 {
+            () => {
+                match mode {
+                    AddrMode::Acc => self.a as u16,
+                    AddrMode::Imm => imm8 as u16,
+                    _ => self.read16(addr),
+                }
+            };
+        }
+
+        use Instr::*;
+        match instr {
+            VMC => return self.handle_vmcall(imm8),
+            _ => todo!(),
+        }
+
+        self.advance_clk(INSTR_CYCLES[opcode as usize] as usize);
+        StepResult::Success
     }
 }

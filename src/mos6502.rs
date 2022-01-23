@@ -6,6 +6,7 @@ use crate::timekeeper::Timekeeper;
 use crate::{r, R};
 
 mod isa;
+mod vmcall;
 
 pub const CLKDIVISOR: u64 = 12;
 
@@ -127,5 +128,20 @@ impl Mos6502 {
         let v = self.read16(self.pc);
         self.pc += 2;
         v
+    }
+
+    fn buggy_read16(&self, addr: u16) -> u16 {
+        let first = addr;
+        let msb = addr & 0xff00;
+        let lsb = if (addr & 0xff) == 0xff {
+            0
+        } else {
+            (addr & 0xff) + 1
+        };
+        let secnd = msb | lsb;
+        let lo = self.read8(first) as u16;
+        let hi = self.read8(secnd) as u16;
+        let val = (hi << 8) as u16 | lo;
+        val
     }
 }
