@@ -9,6 +9,13 @@ const VMCALL_WRITE: u8 = 5;
 const VMCALL_BREAK: u8 = 6;
 const VMCALL_DUMP: u8 = 7;
 
+fn unwrap_result(r: nix::Result<usize>) -> u16 {
+    match r {
+        Ok(n) => n as u16,
+        Err(e) => e as i32 as u16,
+    }
+}
+
 impl Mos6502 {
     fn get_ax(&self) -> u16 {
         u16::from_le_bytes([self.a, self.x])
@@ -48,7 +55,23 @@ impl Mos6502 {
         todo!()
     }
     fn handle_read(&mut self) -> StepResult {
-        todo!()
+        let count = self.get_ax() as usize;
+        let mut buf = self.pop_parm(2);
+        let fd = self.pop_parm(2) as i32;
+
+        let mut data = vec![0; count];
+        let ret = nix::unistd::read(fd, &mut data);
+
+        if let Ok(r) = ret {
+            for i in 0..r {
+                self.write8(buf, data[i]);
+                buf += 1;
+            }
+        }
+
+        self.set_ax(unwrap_result(ret));
+
+        StepResult::Success
     }
     fn handle_write(&mut self) -> StepResult {
         let count = self.get_ax() as usize;
@@ -60,10 +83,7 @@ impl Mos6502 {
             data[i] = self.read8(buf);
             buf += 1;
         }
-        let ret = match nix::unistd::write(fd, &data) {
-            Ok(len) => len as u16,
-            Err(errno) => errno as i32 as u16,
-        };
+        let ret = unwrap_result(nix::unistd::write(fd, &data));
 
         self.set_ax(ret);
 
