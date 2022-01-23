@@ -10,11 +10,36 @@ const VMCALL_BREAK: u8 = 6;
 const VMCALL_DUMP: u8 = 7;
 
 impl Mos6502 {
+    fn get_ax(&self) -> u16 {
+        u16::from_le_bytes([self.a, self.x])
+    }
+
+    fn set_ax(&mut self, val: u16) {
+        let [lo, hi] = val.to_le_bytes();
+        self.a = lo;
+        self.x = hi;
+    }
+
+    fn read_zp16(&self, addr: u8) -> u16 {
+        let lo = self.read8(addr as u16);
+        let hi = self.read8(addr as u16 + 1);
+        u16::from_le_bytes([lo, hi])
+    }
+
+    // Parmesan?
+    fn pop_parm(&mut self, incr: u16) -> u16 {
+        let sp = self.read_zp16(0x00);
+        let val = u16::from_le_bytes([self.read8(sp), self.read8(sp + 1)]);
+        self.write16(0x0000, sp + incr);
+        val
+    }
+
     fn handle_args(&mut self) -> StepResult {
         todo!()
     }
     fn handle_exit(&mut self) -> StepResult {
-        todo!()
+        println!("Received Paravirtual Exit Request. Goodbye.");
+        std::process::exit(1);
     }
     fn handle_open(&mut self) -> StepResult {
         todo!()
@@ -26,7 +51,23 @@ impl Mos6502 {
         todo!()
     }
     fn handle_write(&mut self) -> StepResult {
-        todo!()
+        let count = self.get_ax() as usize;
+        let mut buf = self.pop_parm(2);
+        let fd = self.pop_parm(3) as i32;
+
+        let mut data = vec![0; count];
+        for i in 0..count {
+            data[i] = self.read8(buf);
+            buf += 1;
+        }
+        let ret = match nix::unistd::write(fd, &data) {
+            Ok(len) => len as u16,
+            Err(errno) => errno as i32 as u16,
+        };
+
+        self.set_ax(ret);
+
+        StepResult::Success
     }
     fn handle_dump(&mut self) -> StepResult {
         println!("EXIT STATE:");

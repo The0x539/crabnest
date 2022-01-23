@@ -149,6 +149,12 @@ impl Mos6502 {
         self.bus.borrow_mut().write(addr, val);
     }
 
+    pub fn write16(&mut self, addr: u16, val: u16) {
+        let [lo, hi] = val.to_le_bytes();
+        self.write8(addr, lo);
+        self.write8(addr + 1, hi);
+    }
+
     pub fn push8(&mut self, val: u8) {
         self.write8(0x100 + self.sp as u16, val);
         self.sp -= 1;

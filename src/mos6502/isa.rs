@@ -309,7 +309,7 @@ impl Mos6502 {
                 let mut val = val8!();
                 let carry = self.getc();
                 self.setc(val & 0x80 != 0);
-                nval = (val << 1) | carry;
+                val = (val << 1) | carry;
                 set8!(val);
             }
             ROR => {
