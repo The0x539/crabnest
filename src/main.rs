@@ -9,12 +9,18 @@ use std::rc::Rc;
 
 use clap::Parser;
 
+mod ines;
 mod membus;
 mod memory;
 mod mos6502;
 mod reset_manager;
 mod shell;
 mod timekeeper;
+
+mod nes {
+    pub mod io_reg;
+    pub mod ppu;
+}
 
 use memory::Memory;
 use mos6502::Mos6502;
@@ -95,6 +101,8 @@ struct Args {
 
 fn main() -> io::Result<()> {
     let args = Args::parse();
+
+    let sdl = sdl2::init().expect("Couldn't initialize SDL");
 
     let rm = ResetManager::new();
     let tk = Timekeeper::new(&rm, 1.0 / NES_NTSC_SYSCLK);

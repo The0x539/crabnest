@@ -108,7 +108,7 @@ impl Mos6502 {
         self.intr_status = Intr::Nmi;
     }
 
-    fn read8(&self, addr: u16) -> u8 {
+    pub fn read8(&self, addr: u16) -> u8 {
         self.bus.borrow_mut().read(addr)
     }
 
