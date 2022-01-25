@@ -199,7 +199,7 @@ struct PpuSdl {
 }
 
 pub struct Ppu {
-    bus: R<MemBus>,
+    pub bus: R<MemBus>,
     cpu: R<Mos6502>,
 
     sdl: PpuSdl,

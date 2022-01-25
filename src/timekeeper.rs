@@ -14,7 +14,7 @@ pub struct Timekeeper {
     t_pause: u32,
 
     clk_period: f64,
-    clk_cyclenum: u64,
+    pub clk_cyclenum: u64,
 }
 
 impl Timekeeper {

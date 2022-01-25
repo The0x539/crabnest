@@ -21,7 +21,7 @@ pub enum TvType {
     Pal = 1,
 }
 
-#[derive(BitfieldSpecifier)]
+#[derive(BitfieldSpecifier, PartialEq)]
 #[bits = 1]
 pub enum Mirroring {
     Horizontal = 0,
@@ -30,15 +30,15 @@ pub enum Mirroring {
 
 pub struct RomInfo {
     rm: R<ResetManager>,
-    cpu: R<Mos6502>,
-    ppu: R<Ppu>,
-    mirroring: Mirroring,
+    pub cpu: R<Mos6502>,
+    pub ppu: R<Ppu>,
+    pub mirroring: Mirroring,
 
-    wram: R<Memory>,
-    prgrom: R<Memory>,
-    chrom: R<Memory>,
-    chram: R<Memory>,
-    vram: R<Memory>,
+    pub wram: Option<R<Memory>>,
+    pub prgrom: Option<R<Memory>>,
+    pub chrom: Option<R<Memory>>,
+    pub chram: Option<R<Memory>>,
+    pub vram: R<Memory>,
 }
 
 #[bitfield(bits = 8)]
@@ -217,29 +217,45 @@ pub fn rom_load(
 
     let ppu = setup_common(sdl, rm, cpu, palette_path, cscheme_path, scale)?;
 
-    let info = RomInfo {
+    let mut info = RomInfo {
         rm: rm.clone(),
         cpu: cpu.clone(),
         mirroring: common.flags6.mirroring(),
         ppu,
-        wram: Memory::new(rm, wram_size, true),
-        prgrom: Memory::new(rm, prgrom_size, false),
-        chrom: Memory::new(rm, chrom_size, false),
-        chram: Memory::new(rm, chram_size, true),
-        vram: Memory::new(rm, 0x8000, true),
+        wram: None,
+        prgrom: None,
+        chrom: None,
+        chram: None,
+        vram: Memory::new(rm, 0x0800, true),
     };
 
+    if wram_size > 0 {
+        info.wram = Some(Memory::new(rm, wram_size, true));
+    }
+
     if prgrom_size > 0 {
-        f.read_exact(&mut info.prgrom.borrow_mut().bytes)?;
+        let prgrom = Memory::new(rm, prgrom_size, false);
+        f.read_exact(&mut prgrom.borrow_mut().bytes)?;
+        info.prgrom = Some(prgrom);
     }
 
     if chrom_size > 0 {
-        f.read_exact(&mut info.chrom.borrow_mut().bytes)?;
+        let chrom = Memory::new(rm, chrom_size, false);
+        f.read_exact(&mut chrom.borrow_mut().bytes)?;
+        info.chrom = Some(chrom);
     }
 
+    if chram_size > 0 {
+        info.chram = Some(Memory::new(rm, chram_size, true));
+    }
+
+    use crate::nes::{nrom, sxrom};
+
+    let e = |msg: &str| io::Error::new(io::ErrorKind::InvalidData, msg);
+
     match mapper {
-        0 => todo!(),
-        1 => todo!(),
+        0 => nrom::setup(&mut info).map_err(e),
+        1 => sxrom::setup(&mut info).map_err(e),
         _ => Err(io::Error::new(
             io::ErrorKind::Unsupported,
             format!("{path:?} requires mapper #{mapper}; only mappers #0 and #1 are supported"),

@@ -20,7 +20,10 @@ mod timekeeper;
 
 mod nes {
     pub mod io_reg;
+    pub mod mmc1;
+    pub mod nrom;
     pub mod ppu;
+    pub mod sxrom;
 }
 
 use memory::Memory;
