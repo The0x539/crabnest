@@ -279,13 +279,15 @@ fn setup_common(
     cscheme_path: &Path,
     scale: u32,
 ) -> io::Result<R<Ppu>> {
-    let cpu_ref = cpu.borrow();
-    let bus = &mut *cpu_ref.bus.borrow_mut();
+    {
+        let cpu_ref = cpu.borrow();
+        let bus = &mut *cpu_ref.bus.borrow_mut();
 
-    let ram = Memory::new(rm, 0x8000, true);
-    Memory::map(&ram, bus, 0x0000, ram.borrow().size() as u16, 0x0000);
+        let ram = Memory::new(rm, 0x8000, true);
+        Memory::map(&ram, bus, 0x0000, ram.borrow().size() as u16, 0x0000);
 
-    Memory::map_mirroring(&ram, bus, 0x0800, 0x0800, 0x0000, 3);
+        Memory::map_mirroring(&ram, bus, 0x0800, 0x0800, 0x0000, 3);
+    }
 
     IoReg::setup(sdl, rm, cpu, cscheme_path)?;
 
