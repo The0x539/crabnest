@@ -215,21 +215,36 @@ pub fn rom_load(
         eprintln!("WARNING: {path:?} expects a PAL system");
     }
 
-    let ppu = setup_common(sdl, rm, cpu, palette_path, cscheme_path, scale);
+    let ppu = setup_common(sdl, rm, cpu, palette_path, cscheme_path, scale)?;
 
     let info = RomInfo {
         rm: rm.clone(),
         cpu: cpu.clone(),
         mirroring: common.flags6.mirroring(),
-        ppu: todo!(),
-        wram: todo!(),
-        prgrom: todo!(),
-        chrom: todo!(),
-        chram: todo!(),
-        vram: todo!(),
+        ppu,
+        wram: Memory::new(rm, wram_size, true),
+        prgrom: Memory::new(rm, prgrom_size, false),
+        chrom: Memory::new(rm, chrom_size, false),
+        chram: Memory::new(rm, chram_size, true),
+        vram: Memory::new(rm, 0x8000, true),
     };
 
-    todo!()
+    if prgrom_size > 0 {
+        f.read_exact(&mut info.prgrom.borrow_mut().bytes)?;
+    }
+
+    if chrom_size > 0 {
+        f.read_exact(&mut info.chrom.borrow_mut().bytes)?;
+    }
+
+    match mapper {
+        0 => todo!(),
+        1 => todo!(),
+        _ => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("{path:?} requires mapper #{mapper}; only mappers #0 and #1 are supported"),
+        )),
+    }
 }
 
 fn decode_ram_size(encoded: usize) -> usize {
@@ -247,7 +262,7 @@ fn setup_common(
     palette_path: &Path,
     cscheme_path: &Path,
     scale: u32,
-) -> io::Result<()> {
+) -> io::Result<R<Ppu>> {
     let cpu_ref = cpu.borrow();
     let bus = &mut *cpu_ref.bus.borrow_mut();
 
@@ -266,5 +281,5 @@ fn setup_common(
         &mut ppu.borrow_mut().state.palette_srgb,
     ))?;
 
-    Ok(())
+    Ok(ppu)
 }
