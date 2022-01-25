@@ -236,7 +236,7 @@ pub struct PpuState {
     bg_attr_shiftregs: [u8; 2],
     bg_palette: u8,
 
-    sprite_bmp_shiftregs: [[u8; 8]; 2],
+    sprite_bmp_shiftregs: [[u8; 2]; 8],
     sprite_attrs: [SpriteAttrs; 8],
     sprite_xs: [u8; 8],
 
@@ -596,6 +596,9 @@ impl Ppu {
             .with_tex_mut(|tex| {
                 tex.with_lock(None, |texdata, pitch| {
                     let i = self.state.slnum * pitch + (self.state.dotnum - 1) * 4;
+                    if i + 4 >= texdata.len() {
+                        return;
+                    }
                     let pixdata = &mut texdata[i..i + 4];
                     pixdata[0] = self.state.palette_srgb[pixel_color][0];
                     pixdata[1] = self.state.palette_srgb[pixel_color][1];

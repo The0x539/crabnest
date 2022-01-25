@@ -30,34 +30,37 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
     }
 
     let cpu = info.cpu.borrow();
-    let bus = &mut *cpu.bus.borrow_mut();
+    let c_bus = &mut *cpu.bus.borrow_mut();
 
     if let Some(wram) = &info.wram {
         let size = wram.borrow().size();
-        Memory::map_mirroring(wram, bus, 0x6000, size as u16, 0x0000, 0x2000 / size);
+        Memory::map_mirroring(wram, c_bus, 0x6000, size as u16, 0x0000, 0x2000 / size);
     }
 
     // guaranteed
     if let Some(prgrom) = &info.prgrom {
         let size = prgrom.borrow().size();
-        Memory::map_mirroring(prgrom, bus, 0x8000, size as u16, 0x0000, 0x8000 / size);
+        Memory::map_mirroring(prgrom, c_bus, 0x8000, size as u16, 0x0000, 0x8000 / size);
     }
 
     // guaranteed
     if let Some(chrom) = &info.chrom {
         let size = chrom.borrow().size();
-        Memory::map_mirroring(chrom, bus, 0x0000, size as u16, 0x0000, 0x0000);
+        Memory::map_mirroring(chrom, c_bus, 0x0000, size as u16, 0x0000, 0x0000);
     }
+
+    let ppu = info.ppu.borrow();
+    let p_bus = &mut *ppu.bus.borrow_mut();
 
     let half_vram = info.vram.borrow().size() as u16 / 2;
     if info.mirroring == Mirroring::Horizontal {
-        Memory::map_mirroring(&info.vram, bus, 0x2000, half_vram, 0, 2);
-        Memory::map_mirroring(&info.vram, bus, 0x2800, half_vram, half_vram as usize, 2);
+        Memory::map_mirroring(&info.vram, p_bus, 0x2000, half_vram, 0, 2);
+        Memory::map_mirroring(&info.vram, p_bus, 0x2800, half_vram, half_vram as usize, 2);
     } else {
-        Memory::map(&info.vram, bus, 0x2000, half_vram, 0);
-        Memory::map(&info.vram, bus, 0x2400, half_vram, half_vram as usize);
-        Memory::map(&info.vram, bus, 0x2800, half_vram, 0);
-        Memory::map(&info.vram, bus, 0x2C00, half_vram, half_vram as usize);
+        Memory::map(&info.vram, p_bus, 0x2000, half_vram, 0);
+        Memory::map(&info.vram, p_bus, 0x2400, half_vram, half_vram as usize);
+        Memory::map(&info.vram, p_bus, 0x2800, half_vram, 0);
+        Memory::map(&info.vram, p_bus, 0x2C00, half_vram, half_vram as usize);
     }
 
     Ok(())
