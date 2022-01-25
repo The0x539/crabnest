@@ -49,15 +49,15 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
         Memory::map_mirroring(chrom, bus, 0x0000, size as u16, 0x0000, 0x0000);
     }
 
-    let vram_size = info.vram.borrow().size();
+    let half_vram = info.vram.borrow().size() as u16 / 2;
     if info.mirroring == Mirroring::Horizontal {
-        Memory::map_mirroring(&info.vram, bus, 0x2000, vram_size as u16, 0, 2);
-        Memory::map_mirroring(&info.vram, bus, 0x2800, vram_size as u16, vram_size, 2);
+        Memory::map_mirroring(&info.vram, bus, 0x2000, half_vram, 0, 2);
+        Memory::map_mirroring(&info.vram, bus, 0x2800, half_vram, half_vram as usize, 2);
     } else {
-        Memory::map(&info.vram, bus, 0x2000, vram_size as u16, 0);
-        Memory::map(&info.vram, bus, 0x2400, vram_size as u16, vram_size);
-        Memory::map(&info.vram, bus, 0x2800, vram_size as u16, 0);
-        Memory::map(&info.vram, bus, 0x2C00, vram_size as u16, vram_size);
+        Memory::map(&info.vram, bus, 0x2000, half_vram, 0);
+        Memory::map(&info.vram, bus, 0x2400, half_vram, half_vram as usize);
+        Memory::map(&info.vram, bus, 0x2800, half_vram, 0);
+        Memory::map(&info.vram, bus, 0x2C00, half_vram, half_vram as usize);
     }
 
     Ok(())
