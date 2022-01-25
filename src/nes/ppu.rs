@@ -204,11 +204,11 @@ pub struct Ppu {
 
     sdl: PpuSdl,
 
-    state: PpuState,
+    pub state: PpuState,
 }
 
 #[derive(Debug, Clone, Zeroable)]
-struct PpuState {
+pub struct PpuState {
     framenum: usize,
     clk_countdown: u64,
 
@@ -245,7 +245,7 @@ struct PpuState {
     sprites: [Sprite; 64],
 
     palette_mem: [u8; 32],
-    palette_srgb: [[u8; 3]; 512],
+    pub palette_srgb: [[u8; 3]; 512],
 }
 
 impl PpuState {

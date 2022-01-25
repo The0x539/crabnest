@@ -259,6 +259,12 @@ fn setup_common(
     IoReg::setup(rm, cpu, cscheme_path)?;
 
     let ppu = Ppu::new(sdl, rm, cpu, scale);
+    Ppu::map(&ppu);
+
+    let mut f = File::open(palette_path)?;
+    f.read_exact(bytemuck::bytes_of_mut(
+        &mut ppu.borrow_mut().state.palette_srgb,
+    ))?;
 
     Ok(())
 }
