@@ -51,6 +51,7 @@ impl IoReg {
         let mut line_buffer = String::new();
         for playernum in 0..2 {
             for buttonnum in 0..CONTROLLER_NBUTTONS {
+                line_buffer.clear();
                 f.read_line(&mut line_buffer)?;
                 let line = line_buffer.trim_end();
                 let scancode = Scancode::from_name(line).ok_or_else(|| {
