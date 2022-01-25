@@ -1,11 +1,11 @@
 #![deny(rust_2018_idioms)]
-#![allow(dead_code)]
 
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
 
 use clap::Parser;
 use sdl2::Sdl;
@@ -120,7 +120,7 @@ fn main() -> io::Result<()> {
     std::mem::forget(watch);
 
     let rm = ResetManager::new();
-    let tk = Timekeeper::new(&rm, 1.0 / NES_NTSC_SYSCLK);
+    let tk = Timekeeper::new(&rm, Duration::from_secs_f64(1.0 / NES_NTSC_SYSCLK));
     let cpu = Mos6502::new(&rm, &tk, &[/* TODO: catch the rest of the args */]);
 
     load_rom(

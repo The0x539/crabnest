@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
 use ouroboros::self_referencing;
