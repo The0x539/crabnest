@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
-use sdl2::keyboard::{KeyboardState, Scancode};
+use sdl2::{keyboard::Scancode, EventPump, Sdl};
 
 use crate::membus::{MemRead, MemWrite};
 use crate::mos6502::Mos6502;
@@ -24,15 +24,22 @@ pub enum Button {
 
 pub struct IoReg {
     cpu: R<Mos6502>,
+    event_pump: EventPump,
     controller_strobe: bool,
     controller_shiftregs: [u8; 2],
     controller_mappings: [[Scancode; 2]; CONTROLLER_NBUTTONS],
 }
 
 impl IoReg {
-    fn new(rm: &R<ResetManager>, cpu: &R<Mos6502>, cscheme_path: &Path) -> io::Result<R<Self>> {
+    fn new(
+        sdl: &Sdl,
+        rm: &R<ResetManager>,
+        cpu: &R<Mos6502>,
+        cscheme_path: &Path,
+    ) -> io::Result<R<Self>> {
         let io = r(Self {
             cpu: cpu.clone(),
+            event_pump: sdl.event_pump().expect("Could not get event pump"),
             controller_strobe: false,
             controller_shiftregs: [0, 0],
             controller_mappings: [[Scancode::A; 2]; CONTROLLER_NBUTTONS],
@@ -59,8 +66,13 @@ impl IoReg {
         Ok(io)
     }
 
-    pub fn setup(rm: &R<ResetManager>, cpu: &R<Mos6502>, cscheme_path: &Path) -> io::Result<()> {
-        let io = Self::new(rm, cpu, cscheme_path)?;
+    pub fn setup(
+        sdl: &Sdl,
+        rm: &R<ResetManager>,
+        cpu: &R<Mos6502>,
+        cscheme_path: &Path,
+    ) -> io::Result<()> {
+        let io = Self::new(sdl, rm, cpu, cscheme_path)?;
 
         let cpu = cpu.borrow_mut();
         let mut bus = cpu.bus.borrow_mut();
@@ -93,11 +105,10 @@ impl MemRead for IoReg {
                 *lanemask = 0x1F;
 
                 let bit: u8;
-                #[allow(unreachable_code)]
                 if self.controller_strobe {
                     self.cpu.borrow_mut().tk.borrow_mut().sync();
-                    // TODO: pump SDL2 events
-                    let kbstate: KeyboardState<'_> = todo!();
+                    self.event_pump.pump_events();
+                    let kbstate = self.event_pump.keyboard_state();
                     let button = self.controller_mappings[i][Button::A as usize];
                     bit = kbstate.is_scancode_pressed(button) as u8;
                 } else {
@@ -122,8 +133,8 @@ impl MemWrite for IoReg {
             0x16 => {
                 self.set_strobe(val & 0x01 != 0);
 
-                // TODO: pump events
-                let kbstate: KeyboardState<'_> = todo!();
+                self.event_pump.pump_events();
+                let kbstate = self.event_pump.keyboard_state();
 
                 for j in 0..2 {
                     for i in 0..CONTROLLER_NBUTTONS {

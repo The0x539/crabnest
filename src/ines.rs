@@ -271,7 +271,7 @@ fn setup_common(
 
     Memory::map_mirroring(&ram, bus, 0x0800, 0x0800, 0x0000, 3);
 
-    IoReg::setup(rm, cpu, cscheme_path)?;
+    IoReg::setup(sdl, rm, cpu, cscheme_path)?;
 
     let ppu = Ppu::new(sdl, rm, cpu, scale);
     Ppu::map(&ppu);
