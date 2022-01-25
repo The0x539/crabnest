@@ -137,7 +137,6 @@ impl Mos6502 {
     }
 
     pub fn step(&mut self) -> StepResult {
-        let oldpc = self.pc;
         let opcode = self.read8pc();
         let mode = ADDR_MODES[opcode as usize];
         let instr = INSTRS[opcode as usize];
@@ -353,6 +352,9 @@ impl Mos6502 {
             CLC => self.p.remove(StatReg::C),
             SED => self.p.insert(StatReg::D),
             CLD => self.p.remove(StatReg::D),
+            SEI => self.p.insert(StatReg::I),
+            CLI => self.p.remove(StatReg::I),
+            CLV => self.p.remove(StatReg::V),
 
             // stack ops
             PHA => self.push8(self.a),
@@ -396,9 +398,9 @@ impl Mos6502 {
                 self.p.set(StatReg::N, val & 0x80 != 0);
                 self.p.set(StatReg::V, val & 0x40 != 0);
                 self.p.set(StatReg::Z, val == self.a);
-            }
+            } //_ => eprintln!("{} NYI ({:02X})", self.instr_repr(oldpc), opcode),
 
-            _ => eprintln!("{} NYI ({:02X})", self.instr_repr(oldpc), opcode),
+            IUU => eprintln!("illegal instruction {opcode}"),
         }
 
         self.advance_clk(INSTR_CYCLES[opcode as usize] as usize);
