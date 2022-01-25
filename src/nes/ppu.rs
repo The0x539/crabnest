@@ -291,7 +291,7 @@ impl PpuState {
     fn load_shiftregs(&mut self) {
         match self.dotnum {
             1 | 321 | 257..=320 => return,
-            x if (x - 1) % 8 != 0 => return,
+            x if x.wrapping_sub(1) % 8 != 0 => return,
             _ => (),
         }
 

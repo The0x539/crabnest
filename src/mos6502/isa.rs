@@ -322,29 +322,29 @@ impl Mos6502 {
 
             // memory inc/dec
             INC => {
-                let v = val8!() + 1;
+                let v = val8!().wrapping_add(1);
                 set8!(v);
             }
             DEC => {
-                let v = val8!() - 1;
+                let v = val8!().wrapping_sub(1);
                 set8!(v);
             }
 
             // register inc/dec
             INX => {
-                self.x += 1;
+                self.x = self.x.wrapping_add(1);
                 self.setp(self.x);
             }
             DEX => {
-                self.x -= 1;
+                self.x = self.x.wrapping_sub(1);
                 self.setp(self.x);
             }
             INY => {
-                self.y += 1;
+                self.y = self.y.wrapping_add(1);
                 self.setp(self.y);
             }
             DEY => {
-                self.y -= 1;
+                self.y = self.y.wrapping_sub(1);
                 self.setp(self.y);
             }
 
