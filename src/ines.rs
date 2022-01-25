@@ -14,24 +14,18 @@ use crate::nes::ppu::Ppu;
 use crate::reset_manager::ResetManager;
 use crate::R;
 
+#[derive(BitfieldSpecifier, PartialEq)]
+#[bits = 1]
 pub enum TvType {
     Ntsc = 0,
     Pal = 1,
 }
 
+#[derive(BitfieldSpecifier)]
+#[bits = 1]
 pub enum Mirroring {
     Horizontal = 0,
     Vertical = 1,
-}
-
-impl From<u8> for Mirroring {
-    fn from(m: u8) -> Self {
-        match m {
-            0 => Self::Horizontal,
-            1 => Self::Vertical,
-            _ => Self::Vertical, // ???
-        }
-    }
 }
 
 pub struct RomInfo {
@@ -47,18 +41,18 @@ pub struct RomInfo {
     vram: R<Memory>,
 }
 
-#[bitfield]
+#[bitfield(bits = 8)]
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Flags6 {
-    mirroring: B1,
+    mirroring: Mirroring,
     wram_present: B1,
     trainer_present: B1,
     four_screen_vram: B1,
     mapper_nib_low: B4,
 }
 
-#[bitfield]
+#[bitfield(bits = 8)]
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Flags7 {
@@ -68,15 +62,15 @@ struct Flags7 {
     mapper_nib_high: B4,
 }
 
-#[bitfield]
+#[bitfield(bits = 8)]
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Ines1Flags9 {
-    tv_type: B1,
+    tv_type: TvType,
     reserved: B7,
 }
 
-#[bitfield]
+#[bitfield(bits = 8)]
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Ines2Flags8 {
@@ -84,7 +78,7 @@ struct Ines2Flags8 {
     mapper_nib_higher: B4,
 }
 
-#[bitfield]
+#[bitfield(bits = 8)]
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Ines2Flags9 {
@@ -92,7 +86,7 @@ struct Ines2Flags9 {
     prgrom_size_nib: B4,
 }
 
-#[bitfield]
+#[bitfield(bits = 8)]
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Ines2Flags10 {
@@ -100,7 +94,7 @@ struct Ines2Flags10 {
     bb_wram_size: B4,
 }
 
-#[bitfield]
+#[bitfield(bits = 8)]
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Ines2Flags11 {
@@ -108,11 +102,11 @@ struct Ines2Flags11 {
     bb_chram_size: B4,
 }
 
-#[bitfield]
+#[bitfield(bits = 8)]
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Ines2Flags12 {
-    tv_type: B1,
+    tv_type: TvType,
     universal: B1,
     reserved: B6,
 }
@@ -214,9 +208,9 @@ pub fn rom_load(
     }
 
     if if version == 2 {
-        ines2.flags12.universal() == 0 && ines2.flags12.tv_type() != TvType::Ntsc as u8
+        ines2.flags12.universal() == 0 && ines2.flags12.tv_type() != TvType::Ntsc
     } else {
-        ines1.flags9.tv_type() != TvType::Ntsc as u8
+        ines1.flags9.tv_type() != TvType::Ntsc
     } {
         eprintln!("WARNING: {path:?} expects a PAL system");
     }
@@ -226,7 +220,7 @@ pub fn rom_load(
     let info = RomInfo {
         rm: rm.clone(),
         cpu: cpu.clone(),
-        mirroring: common.flags6.mirroring().into(),
+        mirroring: common.flags6.mirroring(),
         ppu: todo!(),
         wram: todo!(),
         prgrom: todo!(),
