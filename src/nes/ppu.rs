@@ -8,9 +8,10 @@ use sdl2::{
     Sdl,
 };
 
-use crate::reset_manager::ResetManager;
-use crate::{membus::MemBus, reset_manager::Reset};
-use crate::{mos6502::Mos6502, timekeeper::Timed};
+use crate::membus::{MemBus, MemRead, MemWrite};
+use crate::mos6502::Mos6502;
+use crate::reset_manager::{Reset, ResetManager};
+use crate::timekeeper::Timed;
 use crate::{r, R};
 
 const OUTPUT_WIDTH: u32 = 256;
@@ -22,6 +23,15 @@ const CLK_DIVISOR: u64 = 4;
 enum VramAddrInc {
     Inc1 = 0,
     Inc32 = 1,
+}
+
+impl VramAddrInc {
+    fn amount(&self) -> u16 {
+        match self {
+            Self::Inc1 => 1,
+            Self::Inc32 => 32,
+        }
+    }
 }
 
 #[derive(BitfieldSpecifier, Debug, Copy, Clone)]
@@ -477,6 +487,41 @@ impl PpuState {
 
         self.palette_mem.get(offset as usize)
     }
+
+    fn palette_loc_mut(&mut self, addr: u16) -> Option<&mut u8> {
+        if !(0x3F00..=0x3FFF).contains(&addr) {
+            return None;
+        }
+
+        let reladdr = (addr - 0x3F00) % 0x20;
+        let offset = match reladdr {
+            0x10 | 0x14 | 0x18 | 0x1C => reladdr - 0x10,
+            _ => reladdr,
+        };
+
+        self.palette_mem.get_mut(offset as usize)
+    }
+
+    fn oam(&self) -> &[u8] {
+        bytemuck::bytes_of(&self.sprites)
+    }
+
+    fn oam_mut(&mut self) -> &mut [u8] {
+        bytemuck::bytes_of_mut(&mut self.sprites)
+    }
+
+    fn inc_vram_addr_rw(&mut self) {
+        if !(self.mask.bg_en() || self.mask.sprite_en()) || (self.slnum >= 240 && self.slnum != 261)
+        {
+            let mut vra = u16::from_le_bytes(self.vram_addr.bytes);
+            vra += self.flags.vram_addr_inc().amount();
+            vra %= 0x4000;
+            self.vram_addr.bytes = vra.to_le_bytes();
+            return;
+        }
+        self.vram_addr.inc_coarse_x();
+        self.vram_addr.inc_y();
+    }
 }
 
 impl Ppu {
@@ -518,6 +563,16 @@ impl Ppu {
         cpu.borrow().tk.borrow_mut().add_timer(ppu.clone());
 
         ppu
+    }
+
+    pub fn map(this: &R<Self>) {
+        let thiss = this.borrow();
+        let cpu = thiss.cpu.borrow();
+        let mut bus = cpu.bus.borrow_mut();
+        for i in 0x20..0x40 {
+            bus.set_read_handler(i, this, 0);
+            bus.set_write_handler(i, this, 0);
+        }
     }
 
     fn present_frame(&mut self) {
@@ -591,5 +646,144 @@ impl Timed for Ppu {
 
     fn countdown_mut(&mut self) -> &mut u64 {
         &mut self.state.clk_countdown
+    }
+}
+
+impl MemRead for Ppu {
+    fn read(&mut self, addr: u16, _lane_mask: &mut u8) -> u8 {
+        let state = &mut self.state;
+        match addr % 8 {
+            2 => {
+                // PPUSTATUS
+                let mut val = 0;
+                val |= (state.flags.vblank() as u8) << 7;
+                val |= (state.flags.sprite0_hit() as u8) << 6;
+                val |= (state.flags.sprite_overflow() as u8) << 5;
+
+                state.flags.set_write_toggle(false);
+                state.flags.set_vblank(false);
+
+                val
+            }
+
+            4 => state.oam()[state.oam_addr as usize], // OAMDATA
+
+            7 => {
+                // PPUDATA
+                let vram_addr = u16::from_le_bytes(state.vram_addr.bytes);
+                let val = if let Some(palloc) = state.palette_loc(vram_addr) {
+                    *palloc
+                } else {
+                    let addr = if (0x3000..0x3F00).contains(&vram_addr) {
+                        vram_addr - 0x1000
+                    } else {
+                        vram_addr
+                    };
+                    std::mem::replace(&mut state.vram_read_buf, self.bus.borrow_mut().read(addr))
+                };
+                state.inc_vram_addr_rw();
+                val
+            }
+
+            _ => 0xFF,
+        }
+    }
+}
+
+impl MemWrite for Ppu {
+    fn write(&mut self, addr: u16, val: u8) {
+        let state = &mut self.state;
+        match addr % 8 {
+            0 => {
+                // PPUCTRL
+                let baseaddr = NtBaseAddr::new()
+                    .with_h(val & 0x1 != 0)
+                    .with_v(val & 0x2 != 0);
+                state.tmp_vram_addr.set_nt_baseaddr(baseaddr);
+
+                let inc = if val & 0x4 != 0 {
+                    VramAddrInc::Inc32
+                } else {
+                    VramAddrInc::Inc1
+                };
+                state.flags.set_vram_addr_inc(inc);
+
+                let sprite_base = if val & 0x8 != 0 {
+                    ChrBaseAddr::Addr0000
+                } else {
+                    ChrBaseAddr::Addr1000
+                };
+                state.flags.set_sprite_chr_baseaddr(sprite_base);
+
+                let bg_base = if val & 0x10 != 0 {
+                    ChrBaseAddr::Addr0000
+                } else {
+                    ChrBaseAddr::Addr1000
+                };
+                state.flags.set_bg_chr_baseaddr(bg_base);
+
+                let size = if val & 0x20 != 0 {
+                    SpriteSize::SixteenBySxteen
+                } else {
+                    SpriteSize::EightByEight
+                };
+                state.flags.set_sprite_size(size);
+
+                let old_nmi_en = state.flags.nmi_en();
+                state.flags.set_nmi_en(val & 0x80 != 0);
+                if state.flags.nmi_en() != old_nmi_en && state.flags.vblank() {
+                    self.cpu.borrow_mut().raise_nmi();
+                }
+            }
+
+            1 => state.mask.bytes[0] = val, // PPUMASK
+            3 => state.oam_addr = val,      // OAMADDR
+            4 => {
+                // OAMDATA
+                let addr = state.oam_addr as usize;
+                state.oam_mut()[addr] = val;
+                state.oam_addr += 1;
+            }
+
+            5 => {
+                // PPUSCROLL
+                if !state.flags.write_toggle() {
+                    state.tmp_vram_addr.set_coarse_xscroll(val >> 3);
+                    state.fine_xscroll = val & 0x7;
+                } else {
+                    state.tmp_vram_addr.set_fine_yscroll(val & 0x7);
+                    state.tmp_vram_addr.set_coarse_yscroll(val >> 3);
+                }
+                state.flags.set_write_toggle(!state.flags.write_toggle());
+            }
+
+            6 => {
+                // PPUADDR
+                if !state.flags.write_toggle() {
+                    state.tmp_vram_addr.bytes[1] = val & 0x3F;
+                } else {
+                    state.tmp_vram_addr.bytes[0] = val;
+                }
+                state.flags.set_write_toggle(!state.flags.write_toggle());
+            }
+
+            7 => {
+                // PPUDATA
+                let vram_addr = u16::from_le_bytes(state.vram_addr.bytes);
+                if let Some(palloc) = state.palette_loc_mut(vram_addr) {
+                    *palloc = val;
+                } else {
+                    let addr = if (0x3000..0x3F00).contains(&vram_addr) {
+                        vram_addr - 0x1000
+                    } else {
+                        vram_addr
+                    };
+                    self.bus.borrow_mut().write(addr, val);
+                }
+                self.state.inc_vram_addr_rw();
+            }
+
+            _ => (),
+        }
     }
 }
