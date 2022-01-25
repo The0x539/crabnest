@@ -388,8 +388,8 @@ impl PpuState {
         bg_color |= ((self.bg_bmp_shiftregs[1] << self.fine_xscroll) >> 14) & 2;
 
         let mut bg_palette = 0;
-        bg_palette |= ((self.bg_attr_shiftregs[0] << self.fine_xscroll) >> 15) & 1;
-        bg_palette |= ((self.bg_attr_shiftregs[1] << self.fine_xscroll) >> 14) & 2;
+        bg_palette |= ((self.bg_attr_shiftregs[0] << self.fine_xscroll) >> 7) & 1;
+        bg_palette |= ((self.bg_attr_shiftregs[1] << self.fine_xscroll) >> 6) & 2;
 
         for x in &mut self.sprite_xs {
             *x = x.saturating_sub(1);
@@ -406,8 +406,8 @@ impl PpuState {
             }
 
             if sprite_color == 0 {
-                sprite_color |= ((self.sprite_bmp_shiftregs[i][0] << self.fine_xscroll) >> 8) & 1;
-                sprite_color |= ((self.sprite_bmp_shiftregs[i][1] << self.fine_xscroll) >> 7) & 2;
+                sprite_color |= ((self.sprite_bmp_shiftregs[i][0] << self.fine_xscroll) >> 7) & 1;
+                sprite_color |= ((self.sprite_bmp_shiftregs[i][1] << self.fine_xscroll) >> 6) & 2;
                 sprite_palette = self.sprite_attrs[i].palette();
                 sprite_behind_bg = self.sprite_attrs[i].behind_bg();
                 is_sprite0 = i == 0 && self.flags.scanline_has_sprite0();
