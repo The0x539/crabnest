@@ -5,9 +5,11 @@ use std::path::Path;
 
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
+use sdl2::Sdl;
 
 use crate::memory::Memory;
 use crate::mos6502::Mos6502;
+use crate::nes::io_reg::IoReg;
 use crate::nes::ppu::Ppu;
 use crate::reset_manager::ResetManager;
 use crate::R;
@@ -27,11 +29,7 @@ impl From<u8> for Mirroring {
         match m {
             0 => Self::Horizontal,
             1 => Self::Vertical,
-            _ =>
-            /* ??? */
-            {
-                Self::Vertical
-            }
+            _ => Self::Vertical, // ???
         }
     }
 }
@@ -150,6 +148,7 @@ struct Ines2Header {
 pub fn rom_load(
     mut f: File,
     path: &Path,
+    sdl: &Sdl,
     rm: &R<ResetManager>,
     cpu: &R<Mos6502>,
     palette_path: &Path,
@@ -222,12 +221,18 @@ pub fn rom_load(
         eprintln!("WARNING: {path:?} expects a PAL system");
     }
 
-    let ppu = setup_common(rm, cpu, palette_path, cscheme_path, scale);
+    let ppu = setup_common(sdl, rm, cpu, palette_path, cscheme_path, scale);
 
     let info = RomInfo {
         rm: rm.clone(),
         cpu: cpu.clone(),
         mirroring: common.flags6.mirroring().into(),
+        ppu: todo!(),
+        wram: todo!(),
+        prgrom: todo!(),
+        chrom: todo!(),
+        chram: todo!(),
+        vram: todo!(),
     };
 
     todo!()
@@ -242,17 +247,24 @@ fn decode_ram_size(encoded: usize) -> usize {
 }
 
 fn setup_common(
+    sdl: &Sdl,
     rm: &R<ResetManager>,
     cpu: &R<Mos6502>,
     palette_path: &Path,
     cscheme_path: &Path,
     scale: u32,
-) {
-    let cpu = cpu.borrow();
-    let bus = &mut *cpu.bus.borrow_mut();
+) -> io::Result<()> {
+    let cpu_ref = cpu.borrow();
+    let bus = &mut *cpu_ref.bus.borrow_mut();
 
     let ram = Memory::new(rm, 0x8000, true);
     Memory::map(&ram, bus, 0x0000, ram.borrow().size() as u16, 0x0000);
 
     Memory::map_mirroring(&ram, bus, 0x0800, 0x0800, 0x0000, 3);
+
+    IoReg::setup(rm, cpu, cscheme_path)?;
+
+    let ppu = Ppu::new(sdl, rm, cpu, scale);
+
+    Ok(())
 }

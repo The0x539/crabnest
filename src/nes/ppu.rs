@@ -1,3 +1,595 @@
+use bytemuck::{Pod, Zeroable};
+use modular_bitfield::prelude::*;
+use ouroboros::self_referencing;
+use sdl2::{
+    pixels::PixelFormatEnum,
+    render::{Texture, TextureCreator, WindowCanvas},
+    video::WindowContext,
+    Sdl,
+};
+
+use crate::reset_manager::ResetManager;
+use crate::{membus::MemBus, reset_manager::Reset};
+use crate::{mos6502::Mos6502, timekeeper::Timed};
+use crate::{r, R};
+
+const OUTPUT_WIDTH: u32 = 256;
+const OUTPUT_HEIGHT: u32 = 240;
+const CLK_DIVISOR: u64 = 4;
+
+#[derive(BitfieldSpecifier, Debug, Copy, Clone)]
+#[bits = 1]
+enum VramAddrInc {
+    Inc1 = 0,
+    Inc32 = 1,
+}
+
+#[derive(BitfieldSpecifier, Debug, Copy, Clone)]
+#[bits = 1]
+enum ChrBaseAddr {
+    Addr0000 = 0,
+    Addr1000 = 1,
+}
+
+#[derive(BitfieldSpecifier, Debug, Copy, Clone)]
+#[bits = 2]
+enum NtBaseAddrEnum {
+    Addr2000 = 0,
+    Addr2400 = 1,
+    Addr2800 = 2,
+    Addr2C00 = 3,
+}
+
+#[bitfield(bits = 2)]
+#[derive(BitfieldSpecifier, Debug, Copy, Clone)]
+struct NtBaseAddr {
+    h: bool,
+    v: bool,
+}
+
+impl NtBaseAddr {
+    fn switch_h(&self) -> Self {
+        self.with_h(!self.h())
+    }
+
+    fn switch_v(&self) -> Self {
+        self.with_v(!self.v())
+    }
+}
+
+#[derive(BitfieldSpecifier, Debug, Copy, Clone)]
+#[bits = 1]
+enum SpriteSize {
+    EightByEight = 0,
+    SixteenBySxteen = 1,
+}
+
+impl SpriteSize {
+    fn height(&self) -> u8 {
+        match self {
+            Self::EightByEight => 8,
+            Self::SixteenBySxteen => 16,
+        }
+    }
+}
+
+#[bitfield(bits = 8)]
+#[derive(Debug, Default, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
+struct SpriteAttrs {
+    palette: B2,
+    #[skip]
+    __: B3,
+    behind_bg: bool,
+    horiz_flipped: bool,
+    verti_flipped: bool,
+}
+
+#[derive(Debug, Default, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
+struct Sprite {
+    ypos: u8,
+    tile: u8,
+    attr: SpriteAttrs,
+    xpos: u8,
+}
+
+#[bitfield(bits = 8)]
+#[derive(Debug, Default, Copy, Clone, Zeroable)]
+struct Mask {
+    greyscale_en: bool,
+    left_bg_en: bool,
+    left_sprite_en: bool,
+    bg_en: bool,
+    sprite_en: bool,
+    emph_red: bool,
+    emph_green: bool,
+    emph_blue: bool,
+}
+
+#[bitfield(bits = 12)]
+#[derive(Debug, Default, Copy, Clone, Zeroable)]
+struct PpuFlags {
+    vram_addr_inc: VramAddrInc,
+    bg_chr_baseaddr: ChrBaseAddr,
+    sprite_chr_baseaddr: ChrBaseAddr,
+    sprite_size: SpriteSize,
+
+    nmi_en: bool,
+    vblank: bool,
+    sprite0_hit: bool,
+    sprite_overflow: bool,
+    write_toggle: bool,
+
+    sprite0_hit_shouldset: bool,
+
+    next_scanline_has_sprite0: bool,
+    scanline_has_sprite0: bool,
+}
+
+#[bitfield(bits = 15)]
+#[derive(Debug, Default, Copy, Clone, Zeroable)]
+struct PpuVramAddr {
+    coarse_xscroll: B5,
+    coarse_yscroll: B5,
+    nt_baseaddr: NtBaseAddr,
+    fine_yscroll: B3,
+}
+
+impl PpuVramAddr {
+    fn inc_coarse_x(&mut self) {
+        if self.coarse_xscroll() == 31 {
+            self.set_coarse_xscroll(0);
+            self.set_nt_baseaddr(self.nt_baseaddr().switch_h());
+        } else {
+            // self.bytes[0] += 0x01;
+            self.set_coarse_xscroll(self.coarse_xscroll() + 1);
+        }
+    }
+
+    fn inc_y(&mut self) {
+        if self.fine_yscroll() != 3 {
+            // self.bytes[1] += 0x10;
+            self.set_fine_yscroll(self.fine_yscroll() + 1);
+            return;
+        }
+
+        self.set_fine_yscroll(0);
+        let mut y = self.coarse_yscroll();
+        if y == 29 {
+            y = 0;
+            self.set_nt_baseaddr(self.nt_baseaddr().switch_v())
+        } else if y == 31 {
+            y = 0;
+        } else {
+            y += 1;
+        }
+        self.set_coarse_yscroll(y);
+    }
+
+    fn copy_h(&mut self, tmp: Self) {
+        self.set_coarse_xscroll(tmp.coarse_xscroll());
+        self.set_nt_baseaddr(self.nt_baseaddr().with_h(tmp.nt_baseaddr().h()))
+    }
+
+    fn copy_v(&mut self, tmp: Self) {
+        self.set_coarse_yscroll(tmp.coarse_yscroll());
+        self.set_nt_baseaddr(self.nt_baseaddr().with_v(tmp.nt_baseaddr().v()));
+        self.set_fine_yscroll(tmp.fine_yscroll());
+    }
+}
+
+#[self_referencing]
+struct PpuSdl {
+    canvas: WindowCanvas,
+    tex_cre: TextureCreator<WindowContext>,
+    #[borrows(tex_cre)]
+    #[covariant]
+    tex: Texture<'this>,
+}
+
 pub struct Ppu {
-    _x: (),
+    bus: R<MemBus>,
+    cpu: R<Mos6502>,
+
+    sdl: PpuSdl,
+
+    state: PpuState,
+}
+
+#[derive(Debug, Clone, Zeroable)]
+struct PpuState {
+    framenum: usize,
+    clk_countdown: u64,
+
+    slnum: usize,
+    dotnum: usize,
+    overflow_dotnum: usize,
+
+    mask: Mask,
+
+    flags: PpuFlags,
+
+    vram_addr: PpuVramAddr,
+    vram_read_buf: u8,
+    tmp_vram_addr: PpuVramAddr,
+
+    fine_xscroll: u8,
+
+    bmp_latch: [u8; 2],
+    nt_latch: u8,
+    attr_latch: u8,
+
+    bg_bmp_shiftregs: [u16; 2],
+    bg_attr_shiftregs: [u8; 2],
+    bg_palette: u8,
+
+    sprite_bmp_shiftregs: [[u8; 8]; 2],
+    sprite_attrs: [SpriteAttrs; 8],
+    sprite_xs: [u8; 8],
+
+    eval_nsprites: u8,
+    eval_sprites: [Sprite; 8],
+
+    oam_addr: u8,
+    sprites: [Sprite; 64],
+
+    palette_mem: [u8; 32],
+    palette_srgb: [[u8; 3]; 512],
+}
+
+impl PpuState {
+    fn set_delayed_regs(&mut self) {
+        let fl = &mut self.flags;
+        if fl.sprite0_hit_shouldset() {
+            fl.set_sprite0_hit(true);
+            fl.set_sprite0_hit_shouldset(false);
+        }
+        if self.dotnum == self.overflow_dotnum && self.overflow_dotnum != 0 {
+            self.flags.set_sprite_overflow(true);
+            self.overflow_dotnum = 0;
+        }
+    }
+
+    fn clear_regs(&mut self) {
+        let fl = &mut self.flags;
+        if self.dotnum == 1 && self.slnum == 261 {
+            fl.set_sprite0_hit(false);
+            fl.set_sprite0_hit_shouldset(false);
+            fl.set_sprite_overflow(false);
+            fl.set_write_toggle(false);
+            fl.set_vblank(false);
+        }
+    }
+
+    fn shift_shiftregs(&mut self) {
+        match self.dotnum {
+            2..=257 | 322..=337 => (),
+            _ => return,
+        }
+
+        self.bg_bmp_shiftregs[0] <<= 1;
+        self.bg_bmp_shiftregs[1] <<= 1;
+
+        self.bg_attr_shiftregs[0] <<= 1;
+        self.bg_attr_shiftregs[0] |= self.bg_palette & 1;
+
+        self.bg_attr_shiftregs[1] <<= 1;
+        self.bg_attr_shiftregs[1] |= self.bg_palette >> 1;
+    }
+
+    fn load_shiftregs(&mut self) {
+        match self.dotnum {
+            1 | 321 | 257..=320 => return,
+            x if (x - 1) % 8 != 0 => return,
+            _ => (),
+        }
+
+        self.bg_bmp_shiftregs[0] &= 0xFF00;
+        self.bg_bmp_shiftregs[1] &= 0xFF00;
+
+        self.bg_bmp_shiftregs[0] |= self.bmp_latch[0] as u16;
+        self.bg_bmp_shiftregs[1] |= self.bmp_latch[1] as u16;
+
+        let attr_x = (self.vram_addr.coarse_xscroll() / 2) % 2;
+        let attr_y = (self.vram_addr.coarse_yscroll() / 2) % 2;
+        let attr_idx = attr_y * 2 + attr_x;
+        let attr_shift = attr_idx * 2;
+
+        self.bg_palette = (self.attr_latch >> attr_shift) & 0x3;
+    }
+
+    fn update_vram_addr(&mut self) {
+        if !(self.mask.bg_en() || self.mask.sprite_en()) {
+            return;
+        }
+        if self.slnum >= 240 && self.slnum != 261 {
+            return;
+        }
+
+        if self.slnum < 240 {
+            if (237..=257).contains(&self.dotnum) && self.dotnum != 1 && (self.dotnum - 1) % 8 == 0
+            {
+                self.vram_addr.inc_coarse_x();
+                if self.dotnum == 257 {
+                    self.vram_addr.inc_y();
+                }
+            } else if self.dotnum == 258 {
+                self.vram_addr.copy_h(self.tmp_vram_addr);
+            }
+        } else if self.slnum == 261 && (280..=304).contains(&self.dotnum) {
+            self.vram_addr.copy_v(self.tmp_vram_addr);
+        }
+    }
+
+    fn spriteeval(&mut self) {
+        if !(self.mask.bg_en() || self.mask.sprite_en()) || self.dotnum != 0 || self.slnum >= 240 {
+            return;
+        }
+
+        bytemuck::bytes_of_mut(&mut self.eval_sprites).fill(0xFF);
+        self.eval_nsprites = 0;
+
+        self.flags
+            .set_scanline_has_sprite0(self.flags.next_scanline_has_sprite0());
+        self.flags.set_next_scanline_has_sprite0(false);
+
+        let sprite_height = self.flags.sprite_size().height();
+
+        let mut sprites = self.sprites.iter().enumerate();
+
+        for (i, sprite) in sprites.by_ref() {
+            if self.eval_nsprites == 8 {
+                break;
+            }
+            if self.slnum < sprite.ypos as usize
+                || self.slnum >= (sprite.ypos + sprite_height) as usize
+            {
+                continue;
+            }
+
+            if i == 0 {
+                self.flags.set_next_scanline_has_sprite0(true);
+            }
+
+            self.eval_sprites[self.eval_nsprites as usize] = *sprite;
+            self.eval_nsprites += 1;
+        }
+
+        for (i, sprite) in sprites {
+            if self.slnum >= sprite.ypos as usize
+                || self.slnum < (sprite.ypos + sprite_height) as usize
+            {
+                self.overflow_dotnum = 8 * 8 + (i + 1 - 8) * 2;
+                break;
+            }
+        }
+    }
+
+    fn draw_pixel(&mut self) -> Option<u16> {
+        let m = &self.mask;
+
+        if !(m.bg_en() || m.sprite_en()) || !(1..=256).contains(&self.dotnum) || self.slnum >= 240 {
+            return None;
+        }
+
+        let mut bg_color = 0;
+        bg_color |= ((self.bg_bmp_shiftregs[0] << self.fine_xscroll) >> 15) & 1;
+        bg_color |= ((self.bg_bmp_shiftregs[1] << self.fine_xscroll) >> 14) & 2;
+
+        let mut bg_palette = 0;
+        bg_palette |= ((self.bg_attr_shiftregs[0] << self.fine_xscroll) >> 15) & 1;
+        bg_palette |= ((self.bg_attr_shiftregs[1] << self.fine_xscroll) >> 14) & 2;
+
+        for x in &mut self.sprite_xs {
+            *x = x.saturating_sub(1);
+        }
+
+        let mut sprite_color = 0;
+        let mut sprite_palette = 0;
+        let mut sprite_behind_bg = false;
+        let mut is_sprite0 = false;
+
+        for i in 0..8 {
+            if self.sprite_xs[i] > 0 {
+                continue;
+            }
+
+            if sprite_color == 0 {
+                sprite_color |= ((self.sprite_bmp_shiftregs[i][0] << self.fine_xscroll) >> 8) & 1;
+                sprite_color |= ((self.sprite_bmp_shiftregs[i][1] << self.fine_xscroll) >> 7) & 2;
+                sprite_palette = self.sprite_attrs[i].palette();
+                sprite_behind_bg = self.sprite_attrs[i].behind_bg();
+                is_sprite0 = i == 0 && self.flags.scanline_has_sprite0();
+            }
+
+            self.sprite_bmp_shiftregs[i][0] <<= 1;
+            self.sprite_bmp_shiftregs[i][1] <<= 1;
+        }
+
+        if !m.sprite_en() || (!m.left_sprite_en() && self.dotnum <= 8) {
+            sprite_color = 0;
+        }
+
+        if !m.bg_en() || (!m.left_bg_en() && self.dotnum <= 8) {
+            bg_color = 0;
+        }
+
+        let fg_addr = 0x3F11 + 4 * sprite_palette as u16 + sprite_color as u16 - 1;
+        let bg_addr = 0x3F01 + 4 * bg_palette as u16 + bg_color as u16 - 1;
+
+        let paladdr = match (bg_color, sprite_color) {
+            (0, 0) => 0x3F00,
+            (0, 1..) => fg_addr,
+            (1.., 0) => bg_addr,
+            (1.., 1..) => {
+                if is_sprite0 && self.dotnum != 256 {
+                    self.flags.set_sprite0_hit_shouldset(true);
+                }
+                if sprite_behind_bg {
+                    bg_addr
+                } else {
+                    fg_addr
+                }
+            }
+        };
+
+        let mut pixel_color = *self.palette_loc(paladdr).unwrap() as u16;
+        pixel_color |= (self.mask.emph_red() as u16) << 6;
+        pixel_color |= (self.mask.emph_green() as u16) << 7;
+        pixel_color |= (self.mask.emph_blue() as u16) << 8;
+
+        Some(pixel_color)
+    }
+
+    fn move_cursor(&mut self) {
+        let sl_length = if self.slnum == 261 && self.framenum % 2 != 0 {
+            340
+        } else {
+            341
+        };
+
+        self.dotnum += 1;
+        if self.dotnum != sl_length {
+            return;
+        }
+        self.dotnum = 0;
+
+        self.slnum += 1;
+        if self.slnum != 262 {
+            return;
+        }
+        self.slnum = 0;
+
+        self.framenum += 1;
+    }
+
+    fn palette_loc(&self, addr: u16) -> Option<&u8> {
+        if !(0x3F00..=0x3FFF).contains(&addr) {
+            return None;
+        }
+
+        let reladdr = (addr - 0x3F00) % 0x20;
+        let offset = match reladdr {
+            0x10 | 0x14 | 0x18 | 0x1C => reladdr - 0x10,
+            _ => reladdr,
+        };
+
+        self.palette_mem.get(offset as usize)
+    }
+}
+
+impl Ppu {
+    pub fn new(sdl: &Sdl, rm: &R<ResetManager>, cpu: &R<Mos6502>, scale: u32) -> R<Self> {
+        let bus = MemBus::new(rm);
+        let cpu = cpu.clone();
+
+        let video = sdl.video().expect("Could not init SDL video");
+        let window = video
+            .window("Crabnest", OUTPUT_WIDTH * scale, OUTPUT_HEIGHT * scale)
+            .position_centered()
+            .allow_highdpi()
+            .build()
+            .expect("Could not create window");
+        let mut canvas = window
+            .into_canvas()
+            .build()
+            .expect("Could not create canvas");
+
+        canvas
+            .set_integer_scale(true)
+            .expect("Could not enable integer scaling");
+
+        let tex_cre = canvas.texture_creator();
+        let ppu_sdl = PpuSdl::new(canvas, tex_cre, |tc| {
+            tc.create_texture_streaming(PixelFormatEnum::RGBA4444, OUTPUT_WIDTH, OUTPUT_HEIGHT)
+                .expect("Could not create texture")
+        });
+
+        let ppu = r(Ppu {
+            bus,
+            cpu: cpu.clone(),
+            sdl: ppu_sdl,
+            state: Zeroable::zeroed(),
+        });
+
+        rm.borrow_mut().add_device(&ppu);
+        // TODO: ask for a ref in this func
+        cpu.borrow().tk.borrow_mut().add_timer(ppu.clone());
+
+        ppu
+    }
+
+    fn present_frame(&mut self) {
+        self.sdl.with_mut(|sdl| {
+            sdl.canvas
+                .copy(&sdl.tex, None, None)
+                .expect("Failed to copy frame");
+
+            sdl.canvas.present();
+        })
+    }
+
+    fn draw_pixel(&mut self) {
+        let pixel_color = match self.state.draw_pixel() {
+            Some(c) => c as usize,
+            None => return,
+        };
+        self.sdl
+            .with_tex_mut(|tex| {
+                tex.with_lock(None, |texdata, pitch| {
+                    let i = self.state.slnum * pitch + (self.state.dotnum - 1) * 4;
+                    let pixdata = &mut texdata[i..i + 4];
+                    pixdata[0] = self.state.palette_srgb[pixel_color][0];
+                    pixdata[1] = self.state.palette_srgb[pixel_color][1];
+                    pixdata[2] = self.state.palette_srgb[pixel_color][2];
+                    pixdata[3] = 255;
+                })
+            })
+            .expect("Could not blit pixels");
+    }
+}
+
+impl Reset for Ppu {
+    fn reset(&mut self) {
+        self.state = PpuState {
+            clk_countdown: CLK_DIVISOR,
+            slnum: 261,
+            ..Zeroable::zeroed()
+        }
+    }
+}
+
+impl Timed for Ppu {
+    fn fire(&mut self) {
+        self.state.clk_countdown = CLK_DIVISOR;
+
+        if self.state.slnum == 241 && self.state.dotnum == 1 {
+            self.state.flags.set_vblank(true);
+            if self.state.flags.nmi_en() {
+                self.cpu.borrow_mut().raise_nmi();
+            }
+            self.present_frame();
+        }
+
+        self.state.set_delayed_regs();
+        self.state.clear_regs();
+
+        self.state.shift_shiftregs();
+        self.state.load_shiftregs();
+        self.state.update_vram_addr();
+        self.state.spriteeval();
+
+        self.draw_pixel();
+
+        self.state.move_cursor();
+    }
+
+    fn countdown(&self) -> &u64 {
+        &self.state.clk_countdown
+    }
+
+    fn countdown_mut(&mut self) -> &mut u64 {
+        &mut self.state.clk_countdown
+    }
 }

@@ -39,7 +39,7 @@ impl IoReg {
         });
         rm.borrow_mut().add_device(&io);
 
-        let f = BufReader::new(File::open(cscheme_path)?);
+        let mut f = BufReader::new(File::open(cscheme_path)?);
 
         let mut line_buffer = String::new();
         for playernum in 0..2 {
@@ -59,20 +59,16 @@ impl IoReg {
         Ok(io)
     }
 
-    pub fn setup(
-        rm: &R<ResetManager>,
-        cpu: &R<Mos6502>,
-        cscheme_path: &Path,
-    ) -> io::Result<R<Self>> {
+    pub fn setup(rm: &R<ResetManager>, cpu: &R<Mos6502>, cscheme_path: &Path) -> io::Result<()> {
         let io = Self::new(rm, cpu, cscheme_path)?;
 
         let cpu = cpu.borrow_mut();
-        let bus = cpu.bus.borrow_mut();
+        let mut bus = cpu.bus.borrow_mut();
 
         bus.set_read_handler(0x40, &io, 0);
         bus.set_write_handler(0x40, &io, 0);
 
-        Ok(io)
+        Ok(())
     }
 
     fn set_strobe(&mut self, val: bool) {
@@ -141,7 +137,7 @@ impl MemWrite for IoReg {
             0x14 => {
                 let readaddr = (val as u16) << 8;
 
-                let cpu = self.cpu.borrow_mut();
+                let mut cpu = self.cpu.borrow_mut();
                 cpu.advance_clk(1);
 
                 // cpu.last_takeover_delay += 1;

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use clap::Parser;
+use sdl2::Sdl;
 
 mod ines;
 mod membus;
@@ -57,11 +58,12 @@ fn hawknest_rom_load(
 
 fn load_rom(
     path: &Path,
+    sdl: &Sdl,
     rm: &R<ResetManager>,
     cpu: &R<Mos6502>,
-    _palette_path: &Path,
-    _cscheme_path: &Path,
-    _scale: u32,
+    palette_path: &Path,
+    cscheme_path: &Path,
+    scale: u32,
 ) -> io::Result<()> {
     let mut f = File::open(path)?;
 
@@ -71,7 +73,8 @@ fn load_rom(
         hawknest_rom_load(f, path, rm, cpu)?;
         Ok(())
     } else if magic == INES_MAGIC {
-        todo!()
+        ines::rom_load(f, path, sdl, rm, cpu, palette_path, cscheme_path, scale)?;
+        Ok(())
     } else {
         Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -103,6 +106,15 @@ fn main() -> io::Result<()> {
     let args = Args::parse();
 
     let sdl = sdl2::init().expect("Couldn't initialize SDL");
+    let events = sdl.event().expect("Couldn't initialize SDL events");
+
+    let watch = events.add_event_watch(|ev| {
+        if matches!(ev, sdl2::event::Event::Quit { .. }) {
+            println!("Goodbye!");
+            std::process::exit(0)
+        }
+    });
+    std::mem::forget(watch);
 
     let rm = ResetManager::new();
     let tk = Timekeeper::new(&rm, 1.0 / NES_NTSC_SYSCLK);
@@ -110,6 +122,7 @@ fn main() -> io::Result<()> {
 
     load_rom(
         &args.rom_path,
+        &sdl,
         &rm,
         &cpu,
         &args.palette,
