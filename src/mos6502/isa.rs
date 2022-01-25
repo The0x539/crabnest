@@ -203,7 +203,7 @@ impl Mos6502 {
             ($reg:ident) => {{
                 let val = val8!();
                 self.setc(self.$reg >= val);
-                self.setp(self.$reg - val);
+                self.setp(self.$reg.wrapping_sub(val));
             }};
         }
         macro_rules! branch {
