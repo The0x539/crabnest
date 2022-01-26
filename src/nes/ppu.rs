@@ -7,6 +7,7 @@ use modular_bitfield::prelude::*;
 use ouroboros::self_referencing;
 use sdl2::{
     pixels::PixelFormatEnum,
+    rect::Rect,
     render::{Texture, TextureCreator, WindowCanvas},
     video::WindowContext,
     Sdl,
@@ -625,21 +626,16 @@ impl Ppu {
             Some(c) => c as usize,
             None => return,
         };
+        let pixdata = [
+            self.state.palette_srgb[pixel_color][0],
+            self.state.palette_srgb[pixel_color][1],
+            self.state.palette_srgb[pixel_color][2],
+            255,
+        ];
+        let rect = Rect::new(self.state.slnum as i32, self.state.dotnum as i32, 1, 1);
         self.sdl
-            .with_tex_mut(|tex| {
-                tex.with_lock(None, |texdata, pitch| {
-                    let i = self.state.slnum * pitch + (self.state.dotnum - 1) * 4;
-                    if i + 4 >= texdata.len() {
-                        return;
-                    }
-                    let pixdata = &mut texdata[i..i + 4];
-                    pixdata[0] = self.state.palette_srgb[pixel_color][0];
-                    pixdata[1] = self.state.palette_srgb[pixel_color][1];
-                    pixdata[2] = self.state.palette_srgb[pixel_color][2];
-                    pixdata[3] = 255;
-                })
-            })
-            .expect("Could not blit pixels");
+            .with_tex_mut(|tex| tex.update(rect, &pixdata, 4))
+            .expect("Couldn't blit pixel");
     }
 
     fn memfetch(&mut self) {
