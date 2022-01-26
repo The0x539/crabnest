@@ -11,6 +11,7 @@ use crate::{r, R};
 
 pub const CONTROLLER_NBUTTONS: usize = 8;
 
+#[allow(dead_code)]
 pub enum Button {
     A = 0,
     B = 1,

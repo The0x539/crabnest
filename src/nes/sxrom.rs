@@ -18,7 +18,9 @@ struct SxRom {
     ppu: R<Ppu>,
 
     prgrom: R<Memory>,
+    #[allow(dead_code)]
     chrom: R<Memory>,
+    #[allow(dead_code)]
     wram: Option<R<Memory>>,
     vram: R<Memory>,
 }

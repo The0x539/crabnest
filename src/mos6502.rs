@@ -50,9 +50,12 @@ pub struct Mos6502 {
 
     pub intr_status: Intr,
 
+    #[allow(dead_code)]
     last_branch_delay: u64,
+    #[allow(dead_code)]
     last_takeover_delay: u64,
 
+    #[allow(dead_code)]
     paravirt_args: Vec<String>,
 }
 
