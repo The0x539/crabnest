@@ -94,6 +94,7 @@ impl MemBus {
         }
     }
 
+    #[allow(dead_code)]
     pub fn clear_page(&mut self, pagenum: usize) {
         self.read_mappings[pagenum] = ReadMapping::Unmapped;
         self.write_mappings[pagenum] = WriteMapping::Unmapped;
