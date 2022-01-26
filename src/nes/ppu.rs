@@ -638,18 +638,12 @@ impl Ppu {
             Some(c) => c as usize,
             None => return,
         };
-        if pixel_color != 0 {
-            println!("{}", pixel_color);
-        }
         let pixdata = [
             self.state.palette_srgb[pixel_color][0],
             self.state.palette_srgb[pixel_color][1],
             self.state.palette_srgb[pixel_color][2],
             255,
         ];
-        if pixdata != [0, 0, 0, 255] {
-            println!("{:?}", pixdata);
-        }
         let rect = Rect::new(self.state.slnum as i32, self.state.dotnum as i32, 1, 1);
         self.sdl
             .with_tex_mut(|tex| tex.update(rect, &pixdata, 4))
@@ -705,15 +699,15 @@ impl Ppu {
             }
         }
 
-        let mut y_offset =
-            st.vram_addr.coarse_yscroll() * 8 + st.vram_addr.fine_yscroll() - 1 - sprite.ypos;
+        let mut y_offset = st.vram_addr.coarse_yscroll() * 8 + st.vram_addr.fine_yscroll();
+        y_offset = y_offset.wrapping_sub(1).wrapping_sub(sprite.ypos);
         if st.flags.sprite_size() == SpriteSize::EightBySixteen {
             tile += (y_offset / 8) ^ sprite.attr.verti_flipped() as u8;
             y_offset %= 8;
         }
 
         if sprite.attr.verti_flipped() {
-            y_offset = 7 - y_offset;
+            y_offset = 7_u8.wrapping_sub(y_offset);
         }
 
         bmp_addr += tile as u16 * 16 + y_offset as u16;
@@ -917,6 +911,7 @@ impl MemWrite for Ppu {
                     state.tmp_vram_addr.bytes[1] = val & 0x3F;
                 } else {
                     state.tmp_vram_addr.bytes[0] = val;
+                    state.vram_addr = state.tmp_vram_addr;
                 }
                 state.flags.set_write_toggle(!state.flags.write_toggle());
             }
