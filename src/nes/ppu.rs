@@ -440,10 +440,6 @@ impl PpuState {
             self.sprite_bmp_shiftregs[i][1] <<= 1;
         }
 
-        if (bg_color, sprite_color) != (0, 0) {
-            println!("{bg_color} {sprite_color}");
-        }
-
         if !m.sprite_en() || (!m.left_sprite_en() && self.dotnum <= 8) {
             sprite_color = 0;
         }
@@ -471,9 +467,6 @@ impl PpuState {
             }
         };
 
-        if paladdr != 16128 {
-            println!("{paladdr}");
-        }
         let mut pixel_color = *self.palette_loc(paladdr).unwrap() as u16;
         pixel_color |= (self.mask.emph_red() as u16) << 6;
         pixel_color |= (self.mask.emph_green() as u16) << 7;
@@ -790,6 +783,7 @@ impl Timed for Ppu {
         self.state.set_delayed_regs();
         self.state.clear_regs();
 
+        self.memfetch();
         self.state.shift_shiftregs();
         self.state.load_shiftregs();
         self.state.update_vram_addr();
