@@ -43,6 +43,15 @@ enum ChrBaseAddr {
     Addr1000 = 1,
 }
 
+impl ChrBaseAddr {
+    fn addr(&self) -> u16 {
+        match self {
+            Self::Addr0000 => 0x0000,
+            Self::Addr1000 => 0x1000,
+        }
+    }
+}
+
 #[derive(BitfieldSpecifier, Debug, Copy, Clone)]
 #[bits = 2]
 enum NtBaseAddrEnum {
@@ -69,18 +78,18 @@ impl NtBaseAddr {
     }
 }
 
-#[derive(BitfieldSpecifier, Debug, Copy, Clone)]
+#[derive(BitfieldSpecifier, Debug, Copy, Clone, PartialEq)]
 #[bits = 1]
 enum SpriteSize {
     EightByEight = 0,
-    SixteenBySxteen = 1,
+    EightBySixteen = 1,
 }
 
 impl SpriteSize {
     fn height(&self) -> u8 {
         match self {
             Self::EightByEight => 8,
-            Self::SixteenBySxteen => 16,
+            Self::EightBySixteen => 16,
         }
     }
 }
@@ -188,6 +197,14 @@ impl PpuVramAddr {
         self.set_coarse_yscroll(tmp.coarse_yscroll());
         self.set_nt_baseaddr(self.nt_baseaddr().with_v(tmp.nt_baseaddr().v()));
         self.set_fine_yscroll(tmp.fine_yscroll());
+    }
+
+    fn to_u16(&self) -> u16 {
+        u16::from_le_bytes(self.bytes)
+    }
+
+    fn set(&mut self, val: u16) {
+        self.bytes = val.to_le_bytes();
     }
 }
 
@@ -515,14 +532,30 @@ impl PpuState {
     fn inc_vram_addr_rw(&mut self) {
         if !(self.mask.bg_en() || self.mask.sprite_en()) || (self.slnum >= 240 && self.slnum != 261)
         {
-            let mut vra = u16::from_le_bytes(self.vram_addr.bytes);
+            let mut vra = self.vram_addr.to_u16();
             vra += self.flags.vram_addr_inc().amount();
             vra %= 0x4000;
-            self.vram_addr.bytes = vra.to_le_bytes();
+            self.vram_addr.set(vra);
             return;
         }
         self.vram_addr.inc_coarse_x();
         self.vram_addr.inc_y();
+    }
+
+    fn nt_addr(&self) -> u16 {
+        0x2000 | (self.vram_addr.to_u16() & 0x0FFF)
+    }
+
+    fn attr_addr(&self) -> u16 {
+        let va = self.vram_addr.to_u16();
+        0x23C0 | (va & 0x0C00) | ((va >> 4) & 0x38) | ((va >> 2) & 0x07)
+    }
+
+    fn bg_bmp_addr(&self) -> u16 {
+        let mut addr = self.flags.bg_chr_baseaddr().addr();
+        addr += self.nt_latch as u16 * 16;
+        addr += self.vram_addr.fine_yscroll() as u16;
+        addr
     }
 }
 
@@ -608,6 +641,107 @@ impl Ppu {
             })
             .expect("Could not blit pixels");
     }
+
+    fn memfetch(&mut self) {
+        if !(self.state.mask.bg_en() || self.state.mask.sprite_en())
+            || (self.state.slnum >= 240 && self.state.slnum != 261)
+        {
+            return;
+        }
+        self.bg_memfetch();
+        self.sprite_memfetch();
+        self.dummy_memfetch();
+    }
+
+    fn bg_memfetch(&mut self) {
+        if !matches!(self.state.dotnum, 1..=256 | 231..=336) {
+            return;
+        }
+
+        let (src, dst) = match (self.state.dotnum - 1) % 8 {
+            1 => (self.state.nt_addr(), &mut self.state.nt_latch),
+            3 => (self.state.attr_addr(), &mut self.state.attr_latch),
+            5 => (self.state.bg_bmp_addr(), &mut self.state.bmp_latch[0]),
+            7 => (self.state.bg_bmp_addr() + 8, &mut self.state.bmp_latch[1]),
+            _ => return,
+        };
+
+        *dst = self.bus.borrow_mut().read(src);
+    }
+
+    fn sprite_memfetch(&mut self) {
+        let st = &mut self.state;
+
+        if !matches!(st.dotnum, 257..=320) {
+            return;
+        }
+
+        let spritenum = (st.dotnum - 257) / 8;
+        let sprite = st.eval_sprites[spritenum];
+
+        let mut bmp_addr: u16;
+        let mut tile = sprite.tile;
+        match st.flags.sprite_size() {
+            SpriteSize::EightByEight => {
+                bmp_addr = st.flags.sprite_chr_baseaddr().addr();
+            }
+            SpriteSize::EightBySixteen => {
+                bmp_addr = 0x1000 * (tile as u16 & 0x1);
+                tile &= !0x1;
+            }
+        }
+
+        let mut y_offset =
+            st.vram_addr.coarse_yscroll() * 8 + st.vram_addr.fine_yscroll() - 1 - sprite.ypos;
+        if st.flags.sprite_size() == SpriteSize::EightBySixteen {
+            tile += (y_offset / 8) ^ sprite.attr.verti_flipped() as u8;
+            y_offset %= 8;
+        }
+
+        if sprite.attr.verti_flipped() {
+            y_offset = 7 - y_offset;
+        }
+
+        bmp_addr += tile as u16 * 16 + y_offset as u16;
+
+        let mut bus = self.bus.borrow_mut();
+        match (st.dotnum - 1) % 8 {
+            1 => {
+                bus.read(st.nt_addr());
+            }
+            3 => {
+                bus.read(st.attr_addr());
+            }
+            5 => {
+                let shiftreg = &mut st.sprite_bmp_shiftregs[spritenum][0];
+                *shiftreg = bus.read(bmp_addr);
+                if sprite.attr.horiz_flipped() {
+                    *shiftreg = shiftreg.reverse_bits();
+                }
+                if spritenum >= st.eval_nsprites as usize {
+                    *shiftreg = 0;
+                }
+            }
+            7 => {
+                let shiftreg = &mut st.sprite_bmp_shiftregs[spritenum][1];
+                *shiftreg = bus.read(bmp_addr + 8);
+                if sprite.attr.horiz_flipped() {
+                    *shiftreg = shiftreg.reverse_bits();
+                }
+                if spritenum >= st.eval_nsprites as usize {
+                    *shiftreg = 0;
+                }
+
+                st.sprite_xs[spritenum] = sprite.xpos;
+                st.sprite_attrs[spritenum] = sprite.attr;
+            }
+            _ => (),
+        }
+    }
+
+    fn dummy_memfetch(&mut self) {
+        // "todo"
+    }
 }
 
 impl Reset for Ppu {
@@ -675,7 +809,7 @@ impl MemRead for Ppu {
 
             7 => {
                 // PPUDATA
-                let vram_addr = u16::from_le_bytes(state.vram_addr.bytes);
+                let vram_addr = state.vram_addr.to_u16();
                 let val = if let Some(palloc) = state.palette_loc(vram_addr) {
                     *palloc
                 } else {
@@ -728,7 +862,7 @@ impl MemWrite for Ppu {
                 state.flags.set_bg_chr_baseaddr(bg_base);
 
                 let size = if val & 0x20 != 0 {
-                    SpriteSize::SixteenBySxteen
+                    SpriteSize::EightBySixteen
                 } else {
                     SpriteSize::EightByEight
                 };
