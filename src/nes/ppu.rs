@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::{cell::Cell, rc::Rc};
+
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
 use ouroboros::self_referencing;
@@ -11,7 +13,7 @@ use sdl2::{
 };
 
 use crate::membus::{MemBus, MemRead, MemWrite};
-use crate::mos6502::Mos6502;
+use crate::mos6502::{Intr, Mos6502};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::timekeeper::Timed;
 use crate::{r, R};
@@ -219,7 +221,7 @@ struct PpuSdl {
 
 pub struct Ppu {
     pub bus: R<MemBus>,
-    cpu: R<Mos6502>,
+    intr: Rc<Cell<Intr>>,
 
     sdl: PpuSdl,
 
@@ -562,7 +564,6 @@ impl PpuState {
 impl Ppu {
     pub fn new(sdl: &Sdl, rm: &R<ResetManager>, cpu: &R<Mos6502>, scale: u32) -> R<Self> {
         let bus = MemBus::new(rm);
-        let cpu = cpu.clone();
 
         let video = sdl.video().expect("Could not init SDL video");
         let window = video
@@ -586,28 +587,27 @@ impl Ppu {
                 .expect("Could not create texture")
         });
 
+        let cpu = cpu.borrow_mut();
+
         let ppu = r(Ppu {
             bus,
-            cpu: cpu.clone(),
+            intr: cpu.intr_status.clone(),
             sdl: ppu_sdl,
             state: Zeroable::zeroed(),
         });
 
         rm.borrow_mut().add_device(&ppu);
         // TODO: ask for a ref in this func
-        cpu.borrow().tk.borrow_mut().add_timer(ppu.clone());
+        cpu.tk.borrow_mut().add_timer(ppu.clone());
 
-        ppu
-    }
-
-    pub fn map(this: &R<Self>) {
-        let thiss = this.borrow();
-        let cpu = thiss.cpu.borrow();
+        // originally part of a `map` method; refactored
         let mut bus = cpu.bus.borrow_mut();
         for i in 0x20..0x40 {
-            bus.set_read_handler(i, this, 0);
-            bus.set_write_handler(i, this, 0);
+            bus.set_read_handler(i, &ppu, 0);
+            bus.set_write_handler(i, &ppu, 0);
         }
+
+        ppu
     }
 
     fn present_frame(&mut self) {
@@ -761,7 +761,7 @@ impl Timed for Ppu {
         if self.state.slnum == 241 && self.state.dotnum == 1 {
             self.state.flags.set_vblank(true);
             if self.state.flags.nmi_en() {
-                self.cpu.borrow_mut().raise_nmi();
+                self.intr.set(Intr::Nmi);
             }
             self.present_frame();
         }
@@ -871,7 +871,7 @@ impl MemWrite for Ppu {
                 let old_nmi_en = state.flags.nmi_en();
                 state.flags.set_nmi_en(val & 0x80 != 0);
                 if state.flags.nmi_en() != old_nmi_en && state.flags.vblank() {
-                    self.cpu.borrow_mut().raise_nmi();
+                    self.intr.set(Intr::Nmi);
                 }
             }
 

@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use bitflags::bitflags;
 
 use crate::membus::MemBus;
@@ -23,6 +26,7 @@ bitflags! {
     }
 }
 
+#[derive(Copy, Clone, PartialEq)]
 pub enum Intr {
     None,
     Irq,
@@ -48,7 +52,7 @@ pub struct Mos6502 {
     pub y: u8,
     pub p: StatReg,
 
-    pub intr_status: Intr,
+    pub intr_status: Rc<Cell<Intr>>,
 
     #[allow(dead_code)]
     last_branch_delay: u64,
@@ -73,7 +77,7 @@ impl Mos6502 {
             x: 0,
             y: 0,
             p: StatReg::empty(),
-            intr_status: Intr::None,
+            intr_status: Rc::new(Cell::new(Intr::None)),
             last_branch_delay: 0,
             last_takeover_delay: 0,
         };
@@ -103,12 +107,12 @@ impl Mos6502 {
         self.advance_clk(8);
     }
 
-    pub fn raise_irq(&mut self) {
-        self.intr_status = Intr::Irq;
+    pub fn raise_irq(&self) {
+        self.intr_status.set(Intr::Irq);
     }
 
-    pub fn raise_nmi(&mut self) {
-        self.intr_status = Intr::Nmi;
+    pub fn raise_nmi(&self) {
+        self.intr_status.set(Intr::Nmi);
     }
 
     pub fn read8(&self, addr: u16) -> u8 {
