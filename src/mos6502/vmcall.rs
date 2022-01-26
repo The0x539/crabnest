@@ -9,6 +9,7 @@ const VMCALL_WRITE: u8 = 5;
 const VMCALL_BREAK: u8 = 6;
 const VMCALL_DUMP: u8 = 7;
 
+#[cfg(unix)]
 fn unwrap_result(r: nix::Result<usize>) -> u16 {
     match r {
         Ok(n) => n as u16,
@@ -42,18 +43,19 @@ impl Mos6502 {
     }
 
     fn handle_args(&mut self) -> StepResult {
-        todo!()
+        StepResult::UnhandledVmcall
     }
     fn handle_exit(&mut self) -> StepResult {
         println!("Received Paravirtual Exit Request. Goodbye.");
         std::process::exit(1);
     }
     fn handle_open(&mut self) -> StepResult {
-        todo!()
+        StepResult::UnhandledVmcall
     }
     fn handle_close(&mut self) -> StepResult {
-        todo!()
+        StepResult::UnhandledVmcall
     }
+    #[cfg(unix)]
     fn handle_read(&mut self) -> StepResult {
         let count = self.get_ax() as usize;
         let mut buf = self.pop_parm(2);
@@ -73,6 +75,11 @@ impl Mos6502 {
 
         StepResult::Success
     }
+    #[cfg(not(unix))]
+    fn handle_read(&mut self) -> StepResult {
+        StepResult::UnhandledVmcall
+    }
+    #[cfg(unix)]
     fn handle_write(&mut self) -> StepResult {
         let count = self.get_ax() as usize;
         let mut buf = self.pop_parm(2);
@@ -88,6 +95,10 @@ impl Mos6502 {
         self.set_ax(ret);
 
         StepResult::Success
+    }
+    #[cfg(not(unix))]
+    fn handle_write(&mut self) -> StepResult {
+        StepResult::UnhandledVmcall
     }
     fn handle_dump(&mut self) -> StepResult {
         println!("EXIT STATE:");
