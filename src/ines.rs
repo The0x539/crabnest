@@ -14,7 +14,7 @@ use crate::mos6502::Mos6502;
 use crate::nes::io_reg::IoReg;
 use crate::nes::ppu::Ppu;
 use crate::reset_manager::ResetManager;
-use crate::R;
+use crate::{r, R};
 
 #[derive(BitfieldSpecifier, PartialEq)]
 #[bits = 1]
@@ -291,9 +291,11 @@ fn setup_common(
         Memory::map_mirroring(&ram, bus, 0x0800, 0x0800, 0x0000, 3);
     }
 
-    IoReg::setup(sdl, rm, cpu, cscheme_path)?;
+    let event_pump = r(sdl.event_pump().expect("Could not set up event pump"));
 
-    let ppu = Ppu::new(sdl, rm, cpu, scale);
+    IoReg::setup(rm, cpu, &event_pump, cscheme_path)?;
+
+    let ppu = Ppu::new(sdl, rm, cpu, event_pump, scale);
 
     let mut f = File::open(palette_path)?;
     f.read_exact(bytemuck::bytes_of_mut(

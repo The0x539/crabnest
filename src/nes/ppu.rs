@@ -10,7 +10,7 @@ use sdl2::{
     rect::Rect,
     render::{Texture, TextureCreator, WindowCanvas},
     video::WindowContext,
-    Sdl,
+    EventPump, Sdl,
 };
 
 use crate::membus::{MemBus, MemRead, MemWrite};
@@ -225,6 +225,7 @@ pub struct Ppu {
     intr: Rc<Cell<Intr>>,
 
     sdl: PpuSdl,
+    sdl_events: R<EventPump>,
 
     pub state: PpuState,
 }
@@ -439,6 +440,10 @@ impl PpuState {
             self.sprite_bmp_shiftregs[i][1] <<= 1;
         }
 
+        if (bg_color, sprite_color) != (0, 0) {
+            println!("{bg_color} {sprite_color}");
+        }
+
         if !m.sprite_en() || (!m.left_sprite_en() && self.dotnum <= 8) {
             sprite_color = 0;
         }
@@ -466,6 +471,9 @@ impl PpuState {
             }
         };
 
+        if paladdr != 16128 {
+            println!("{paladdr}");
+        }
         let mut pixel_color = *self.palette_loc(paladdr).unwrap() as u16;
         pixel_color |= (self.mask.emph_red() as u16) << 6;
         pixel_color |= (self.mask.emph_green() as u16) << 7;
@@ -563,7 +571,13 @@ impl PpuState {
 }
 
 impl Ppu {
-    pub fn new(sdl: &Sdl, rm: &R<ResetManager>, cpu: &R<Mos6502>, scale: u32) -> R<Self> {
+    pub fn new(
+        sdl: &Sdl,
+        rm: &R<ResetManager>,
+        cpu: &R<Mos6502>,
+        event_pump: R<EventPump>,
+        scale: u32,
+    ) -> R<Self> {
         let bus = MemBus::new(rm);
 
         let video = sdl.video().expect("Could not init SDL video");
@@ -594,6 +608,7 @@ impl Ppu {
             bus,
             intr: cpu.intr_status.clone(),
             sdl: ppu_sdl,
+            sdl_events: event_pump,
             state: Zeroable::zeroed(),
         });
 
@@ -612,6 +627,10 @@ impl Ppu {
     }
 
     fn present_frame(&mut self) {
+        // We don't check for the quit event here (that's handled by something over in main)
+        // but we do still need to process all the events, and it seems like this is where that happens
+        self.sdl_events.borrow_mut().pump_events();
+
         self.sdl.with_mut(|sdl| {
             sdl.canvas
                 .copy(&sdl.tex, None, None)
@@ -626,12 +645,18 @@ impl Ppu {
             Some(c) => c as usize,
             None => return,
         };
+        if pixel_color != 0 {
+            println!("{}", pixel_color);
+        }
         let pixdata = [
             self.state.palette_srgb[pixel_color][0],
             self.state.palette_srgb[pixel_color][1],
             self.state.palette_srgb[pixel_color][2],
             255,
         ];
+        if pixdata != [0, 0, 0, 255] {
+            println!("{:?}", pixdata);
+        }
         let rect = Rect::new(self.state.slnum as i32, self.state.dotnum as i32, 1, 1);
         self.sdl
             .with_tex_mut(|tex| tex.update(rect, &pixdata, 4))
