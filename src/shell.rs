@@ -80,6 +80,7 @@ enum Cli {
 }
 
 pub fn run_shell(cpu: R<Mos6502>, interactive: bool) {
+    #[cfg(unix)]
     signal_hook::flag::register(signal_hook::consts::SIGTERM, SIGINT_RECEIVED.clone())
         .expect("Couldn't register a SIGINT handler");
 
