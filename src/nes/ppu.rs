@@ -428,8 +428,8 @@ impl PpuState {
             }
 
             if sprite_color == 0 {
-                sprite_color |= ((self.sprite_bmp_shiftregs[i][0] << self.fine_xscroll) >> 7) & 1;
-                sprite_color |= ((self.sprite_bmp_shiftregs[i][1] << self.fine_xscroll) >> 6) & 2;
+                sprite_color |= (self.sprite_bmp_shiftregs[i][0] >> 7) & 1;
+                sprite_color |= (self.sprite_bmp_shiftregs[i][1] >> 6) & 2;
                 sprite_palette = self.sprite_attrs[i].palette();
                 sprite_behind_bg = self.sprite_attrs[i].behind_bg();
                 is_sprite0 = i == 0 && self.flags.scanline_has_sprite0();
@@ -857,16 +857,16 @@ impl MemWrite for Ppu {
                 state.flags.set_vram_addr_inc(inc);
 
                 let sprite_base = if val & 0x8 != 0 {
-                    ChrBaseAddr::Addr0000
-                } else {
                     ChrBaseAddr::Addr1000
+                } else {
+                    ChrBaseAddr::Addr0000
                 };
                 state.flags.set_sprite_chr_baseaddr(sprite_base);
 
                 let bg_base = if val & 0x10 != 0 {
-                    ChrBaseAddr::Addr0000
-                } else {
                     ChrBaseAddr::Addr1000
+                } else {
+                    ChrBaseAddr::Addr0000
                 };
                 state.flags.set_bg_chr_baseaddr(bg_base);
 
