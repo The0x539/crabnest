@@ -341,7 +341,9 @@ impl PpuState {
         }
 
         if self.slnum < 240 {
-            if (237..=257).contains(&self.dotnum) && self.dotnum != 1 && (self.dotnum - 1) % 8 == 0
+            if !(258..=327).contains(&self.dotnum)
+                && self.dotnum != 1
+                && self.dotnum.saturating_sub(1) % 8 == 0
             {
                 self.vram_addr.inc_coarse_x();
                 if self.dotnum == 257 {
