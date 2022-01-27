@@ -336,14 +336,11 @@ impl PpuState {
         if !(self.mask.bg_en() || self.mask.sprite_en()) {
             return;
         }
-        if self.slnum >= 240 && self.slnum != 261 {
-            return;
-        }
 
         if self.slnum < 240 {
             if !(258..=327).contains(&self.dotnum)
                 && self.dotnum != 1
-                && self.dotnum.saturating_sub(1) % 8 == 0
+                && self.dotnum.wrapping_sub(1) % 8 == 0
             {
                 self.vram_addr.inc_coarse_x();
                 if self.dotnum == 257 {
