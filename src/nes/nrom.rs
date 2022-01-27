@@ -43,14 +43,14 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
         Memory::map_mirroring(prgrom, c_bus, 0x8000, size as u16, 0x0000, 0x8000 / size);
     }
 
+    let ppu = info.ppu.borrow();
+    let p_bus = &mut *ppu.bus.borrow_mut();
+
     // guaranteed
     if let Some(chrom) = &info.chrom {
         let size = chrom.borrow().size();
-        Memory::map_mirroring(chrom, c_bus, 0x0000, size as u16, 0x0000, 0x0000);
+        Memory::map(chrom, p_bus, 0x0000, size as u16, 0x0000);
     }
-
-    let ppu = info.ppu.borrow();
-    let p_bus = &mut *ppu.bus.borrow_mut();
 
     let half_vram = info.vram.borrow().size() as u16 / 2;
     if info.mirroring == Mirroring::Horizontal {
