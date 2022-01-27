@@ -10,12 +10,12 @@ clap = { version = "3.0.10", features = ["derive"] }
 modular-bitfield = "0.11.2"
 once_cell = "1.9.0"
 ouroboros = "0.14.0"
-rustyline = {version = "9.1.2", default-features = false }
-sdl2 = "0.35.1"
+rustyline = { version = "9.1.2", default-features = false }
+sdl2 = { version = "0.35.1" }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23.1"
 signal-hook = "0.3.13"
 
 [target.'cfg(windows)'.dependencies]
-sdl2.features = ["bundled"]
+sdl2 = { version = "0.35.1", features = ["bundled"] }
