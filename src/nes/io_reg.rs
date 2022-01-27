@@ -88,6 +88,18 @@ impl IoReg {
     fn set_strobe(&mut self, val: bool) {
         if self.controller_strobe && !val {
             self.cpu.borrow_mut().tk.borrow_mut().sync();
+
+            let mut ev = self.event_pump.borrow_mut();
+            ev.pump_events();
+
+            let kbstate = ev.keyboard_state();
+            for j in 0..2 {
+                for i in 0..CONTROLLER_NBUTTONS {
+                    let button = self.controller_mappings[i][j];
+                    self.controller_shiftregs[j] |=
+                        (kbstate.is_scancode_pressed(button) as u8) << i as u8;
+                }
+            }
         }
     }
 }
@@ -134,22 +146,7 @@ impl MemRead for IoReg {
 impl MemWrite for IoReg {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            #[allow(unreachable_code)]
-            0x16 => {
-                self.set_strobe(val & 0x01 != 0);
-
-                let mut ev = self.event_pump.borrow_mut();
-                ev.pump_events();
-                let kbstate = ev.keyboard_state();
-
-                for j in 0..2 {
-                    for i in 0..CONTROLLER_NBUTTONS {
-                        let button = self.controller_mappings[i][j];
-                        self.controller_shiftregs[j] |=
-                            (kbstate.is_scancode_pressed(button) as u8) << i as u8;
-                    }
-                }
-            }
+            0x16 => self.set_strobe(val & 0x01 != 0),
 
             0x14 => {
                 let readaddr = (val as u16) << 8;
