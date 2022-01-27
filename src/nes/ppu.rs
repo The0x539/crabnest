@@ -643,8 +643,9 @@ impl Ppu {
             self.state.palette_srgb[pixel_color][2],
             255,
         ];
-        // TODO: subtract 1 from x?
-        let rect = Rect::new(self.state.slnum as i32, self.state.dotnum as i32, 1, 1);
+        let x = self.state.dotnum as i32 - 1;
+        let y = self.state.slnum as i32;
+        let rect = Rect::new(x, y, 1, 1);
         self.sdl
             .with_tex_mut(|tex| tex.update(rect, &pixdata, 4))
             .expect("Couldn't blit pixel");
