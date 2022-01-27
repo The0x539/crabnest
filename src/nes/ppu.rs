@@ -755,9 +755,27 @@ impl Ppu {
 impl Reset for Ppu {
     fn reset(&mut self) {
         self.state = PpuState {
+            framenum: 0,
             clk_countdown: CLK_DIVISOR,
+
             slnum: 261,
-            ..Zeroable::zeroed()
+            dotnum: 0,
+            overflow_dotnum: 0,
+
+            mask: Zeroable::zeroed(),
+
+            flags: Zeroable::zeroed(),
+
+            vram_addr: Zeroable::zeroed(),
+            tmp_vram_addr: Zeroable::zeroed(),
+            vram_read_buf: 0,
+
+            fine_xscroll: 0,
+
+            sprites: Zeroable::zeroed(),
+            palette_mem: Zeroable::zeroed(),
+
+            ..self.state
         }
     }
 }
