@@ -172,7 +172,7 @@ impl PpuVramAddr {
     }
 
     fn inc_y(&mut self) {
-        if self.fine_yscroll() != 3 {
+        if self.fine_yscroll() != 7 {
             // self.bytes[1] += 0x10;
             self.set_fine_yscroll(self.fine_yscroll() + 1);
             return;
@@ -643,6 +643,7 @@ impl Ppu {
             self.state.palette_srgb[pixel_color][2],
             255,
         ];
+        // TODO: subtract 1 from x?
         let rect = Rect::new(self.state.slnum as i32, self.state.dotnum as i32, 1, 1);
         self.sdl
             .with_tex_mut(|tex| tex.update(rect, &pixdata, 4))
@@ -661,7 +662,7 @@ impl Ppu {
     }
 
     fn bg_memfetch(&mut self) {
-        if !matches!(self.state.dotnum, 1..=256 | 231..=336) {
+        if !matches!(self.state.dotnum, 1..=256 | 321..=336) {
             return;
         }
 
