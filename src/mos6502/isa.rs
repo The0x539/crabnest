@@ -295,9 +295,16 @@ impl Mos6502 {
             ($flag:ident, $expected:literal) => {{
                 if self.p.contains(StatReg::$flag) == $expected {
                     self.pc = addr + 1;
-                    cycle_count += 1;
-                    if self.pc & 0xFF00 != oldpc & 0xFF00 {
-                        cycle_count += 1;
+                    let penalty = if self.pc & 0xFF00 != oldpc & 0xFF00 {
+                        2
+                    } else {
+                        1
+                    };
+
+                    cycle_count += penalty;
+                    #[cfg(feature = "cyclecheck")]
+                    {
+                        self.last_branch_delay += penalty as u64;
                     }
                 }
             }};
