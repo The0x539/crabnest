@@ -55,6 +55,27 @@ const INSTR_CYCLES: [u8; 256] = [
 ];
 
 #[rustfmt::skip]
+const PAGE_PENALTIES: [u8; 256] = [
+//  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0
+	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // 1
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 2
+	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // 3
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 4
+	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // 5
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 6
+	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // 7
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 8
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 9
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // A
+	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // B
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, // C
+	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // D
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, // E
+	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // F
+];
+
+#[rustfmt::skip]
 const INSTRS: [Instr; 256] = {
     use Instr::IUU as ___;
     use Instr::*;
@@ -109,9 +130,9 @@ const ADDR_MODES: [AddrMode; 256] = {
 
 impl Mos6502 {
     pub fn instr_repr(&self, addr: u16) -> String {
-        let opcode = self.read8(addr);
-        let instr = INSTRS[opcode as usize];
-        let mode = ADDR_MODES[opcode as usize];
+        let opcode = self.read8(addr) as usize;
+        let instr = INSTRS[opcode];
+        let mode = ADDR_MODES[opcode];
 
         if instr == Instr::IUU {
             return format!("ILL ({opcode:02X})");
@@ -139,23 +160,36 @@ impl Mos6502 {
     }
 
     pub fn step(&mut self) -> StepResult {
-        match self.intr_status.get() {
+        let mut cycle_count = match self.intr_status.get() {
             Intr::Irq => self.handle_irq(),
             Intr::Nmi => self.handle_nmi(),
             Intr::None => 0,
         };
 
-        let opcode = self.read8pc();
-        let mode = ADDR_MODES[opcode as usize];
-        let instr = INSTRS[opcode as usize];
+        let oldpc = self.pc;
+
+        let opcode = self.read8pc() as usize;
+        cycle_count += INSTR_CYCLES[opcode] as usize;
+        let mode = ADDR_MODES[opcode];
+        let instr = INSTRS[opcode];
 
         let mut addr = 0;
         let mut imm8 = 0;
 
         match mode {
             AddrMode::Abs => addr = self.read16pc(),
-            AddrMode::AbsX => addr = self.read16pc() + self.x as u16,
-            AddrMode::AbsY => addr = self.read16pc() + self.y as u16,
+            AddrMode::AbsX | AddrMode::AbsY => {
+                let base = self.read16pc();
+                let offset = if mode == AddrMode::AbsX {
+                    self.x as u16
+                } else {
+                    self.y as u16
+                };
+                addr = base + offset;
+                if addr & 0xFF00 != base & 0xFF00 {
+                    cycle_count += PAGE_PENALTIES[opcode] as usize;
+                }
+            }
             AddrMode::Acc | AddrMode::Impl => (),
             AddrMode::Imm => imm8 = self.read8pc(),
             AddrMode::Ind => {
@@ -167,8 +201,13 @@ impl Mos6502 {
                 addr = self.read16(ind_addr);
             }
             AddrMode::IndIdx => {
-                let ind_addr = self.read8pc() as u16;
-                addr = self.read16(ind_addr) + self.y as u16;
+                let ind = self.read8pc() as u16;
+                let base = self.read16(ind);
+                let offset = self.y as u16;
+                addr = base + offset;
+                if addr & 0xFF00 != base & 0xFF00 {
+                    cycle_count += PAGE_PENALTIES[opcode] as usize;
+                }
             }
             AddrMode::Rel => addr = (self.pc as i16 + self.read8pc() as i8 as i16) as u16,
             AddrMode::ZeroP => addr = self.read8pc() as u16,
@@ -218,6 +257,10 @@ impl Mos6502 {
             ($flag:ident, $expected:literal) => {{
                 if self.p.contains(StatReg::$flag) == $expected {
                     self.pc = addr + 1;
+                    cycle_count += 1;
+                    if self.pc & 0xFF00 != oldpc & 0xFF00 {
+                        cycle_count += 1;
+                    }
                 }
             }};
         }
@@ -410,7 +453,7 @@ impl Mos6502 {
             IUU => eprintln!("illegal instruction {opcode}"),
         }
 
-        self.advance_clk(INSTR_CYCLES[opcode as usize] as usize);
+        self.advance_clk(cycle_count);
         StepResult::Success
     }
 
