@@ -128,6 +128,29 @@ const ADDR_MODES: [AddrMode; 256] = {
     ]
 };
 
+#[derive(Debug, Copy, Clone)]
+struct AluResult {
+    val: u8,
+    z: bool,
+    n: bool,
+    c: bool,
+    v: bool,
+}
+
+fn alu_add(a: u8, b: u8, carry: u8) -> AluResult {
+    let val = a.wrapping_add(b).wrapping_add(carry);
+    let z = val == 0;
+    let n = val > 0x7F;
+    let c = (a as u16 + b as u16) & 0xFF00 != 0;
+
+    let v = (a as i8)
+        .checked_add(b as i8)
+        .and_then(|ab| ab.checked_add(carry as i8))
+        .is_none();
+
+    AluResult { val, z, n, c, v }
+}
+
 impl Mos6502 {
     pub fn instr_repr(&self, addr: u16) -> String {
         let opcode = self.read8(addr) as usize;
@@ -311,11 +334,12 @@ impl Mos6502 {
             // arithmetic
             ADC => {
                 let addend = val8!();
-                let sum = self.a as u16 + addend as u16 + self.getc() as u16;
-                self.setc(sum > 0xFF);
-                self.p.set(StatReg::V, sum > 0x7F && addend <= 0x7F); // ???
-                self.a = sum as u8;
-                self.setp(self.a);
+                let r = alu_add(self.a, addend, self.getc());
+                self.a = r.val;
+                self.p.set(StatReg::N, r.n);
+                self.p.set(StatReg::Z, r.z);
+                self.p.set(StatReg::C, r.c);
+                self.p.set(StatReg::V, r.v);
             }
             SBC => {
                 let a = self.a as i16;
