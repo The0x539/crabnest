@@ -1,12 +1,8 @@
-#![allow(dead_code)]
-
 use std::fs::File;
 use std::io::{self, Read};
 use std::mem::size_of;
 use std::path::Path;
 
-use bytemuck::{Pod, Zeroable};
-use modular_bitfield::prelude::*;
 use sdl2::Sdl;
 
 use crate::memory::Memory;
@@ -15,20 +11,6 @@ use crate::nes::io_reg::IoReg;
 use crate::nes::ppu::Ppu;
 use crate::reset_manager::ResetManager;
 use crate::{r, R};
-
-#[derive(BitfieldSpecifier, PartialEq)]
-#[bits = 1]
-pub enum TvType {
-    Ntsc = 0,
-    Pal = 1,
-}
-
-#[derive(BitfieldSpecifier, PartialEq)]
-#[bits = 1]
-pub enum Mirroring {
-    Horizontal = 0,
-    Vertical = 1,
-}
 
 pub struct RomInfo {
     rm: R<ResetManager>,
@@ -43,103 +25,123 @@ pub struct RomInfo {
     pub vram: R<Memory>,
 }
 
-#[bitfield(bits = 8)]
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Flags6 {
-    mirroring: Mirroring,
-    wram_present: B1,
-    trainer_present: B1,
-    four_screen_vram: B1,
-    mapper_nib_low: B4,
-}
+#[allow(dead_code)]
+mod types {
+    use bytemuck::{Pod, Zeroable};
+    use modular_bitfield::prelude::*;
 
-#[bitfield(bits = 8)]
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Flags7 {
-    vs_unisystem: B1,
-    playchoice_10: B1,
-    version: B2,
-    mapper_nib_high: B4,
-}
+    #[derive(BitfieldSpecifier, PartialEq)]
+    #[bits = 1]
+    pub enum TvType {
+        Ntsc = 0,
+        Pal = 1,
+    }
 
-#[bitfield(bits = 8)]
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Ines1Flags9 {
-    tv_type: TvType,
-    reserved: B7,
-}
+    #[derive(BitfieldSpecifier, PartialEq)]
+    #[bits = 1]
+    pub enum Mirroring {
+        Horizontal = 0,
+        Vertical = 1,
+    }
+    #[bitfield(bits = 8)]
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Flags6 {
+        pub mirroring: Mirroring,
+        pub wram_present: B1,
+        pub trainer_present: B1,
+        pub four_screen_vram: B1,
+        pub mapper_nib_low: B4,
+    }
 
-#[bitfield(bits = 8)]
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Ines2Flags8 {
-    submapper: B4,
-    mapper_nib_higher: B4,
-}
+    #[bitfield(bits = 8)]
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Flags7 {
+        pub vs_unisystem: B1,
+        pub playchoice_10: B1,
+        pub version: B2,
+        pub mapper_nib_high: B4,
+    }
 
-#[bitfield(bits = 8)]
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Ines2Flags9 {
-    chrom_size_nib: B4,
-    prgrom_size_nib: B4,
-}
+    #[bitfield(bits = 8)]
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Ines1Flags9 {
+        pub tv_type: TvType,
+        reserved: B7,
+    }
 
-#[bitfield(bits = 8)]
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Ines2Flags10 {
-    nbb_wram_size: B4,
-    bb_wram_size: B4,
-}
+    #[bitfield(bits = 8)]
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Ines2Flags8 {
+        pub submapper: B4,
+        pub mapper_nib_higher: B4,
+    }
 
-#[bitfield(bits = 8)]
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Ines2Flags11 {
-    nbb_chram_size: B4,
-    bb_chram_size: B4,
-}
+    #[bitfield(bits = 8)]
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Ines2Flags9 {
+        pub chrom_size_nib: B4,
+        pub prgrom_size_nib: B4,
+    }
 
-#[bitfield(bits = 8)]
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Ines2Flags12 {
-    tv_type: TvType,
-    universal: B1,
-    reserved: B6,
-}
+    #[bitfield(bits = 8)]
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Ines2Flags10 {
+        pub nbb_wram_size: B4,
+        pub bb_wram_size: B4,
+    }
 
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct CommonHeader {
-    prgrom_size: u8,
-    chrom_size: u8,
-    flags6: Flags6,
-    flags7: Flags7,
-}
+    #[bitfield(bits = 8)]
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Ines2Flags11 {
+        pub nbb_chram_size: B4,
+        pub bb_chram_size: B4,
+    }
 
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Ines1Header {
-    wram_size: u8,
-    flags9: Ines1Flags9,
-    ignored: [u8; 6],
-}
+    #[bitfield(bits = 8)]
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Ines2Flags12 {
+        pub tv_type: TvType,
+        pub universal: B1,
+        reserved: B6,
+    }
 
-#[derive(Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Ines2Header {
-    flags8: Ines2Flags8,
-    flags9: Ines2Flags9,
-    flags10: Ines2Flags10,
-    flags11: Ines2Flags11,
-    flags12: Ines2Flags12,
-    ignored: [u8; 3],
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct CommonHeader {
+        pub prgrom_size: u8,
+        pub chrom_size: u8,
+        pub flags6: Flags6,
+        pub flags7: Flags7,
+    }
+
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Ines1Header {
+        pub wram_size: u8,
+        pub flags9: Ines1Flags9,
+        ignored: [u8; 6],
+    }
+
+    #[derive(Copy, Clone, Zeroable, Pod)]
+    #[repr(C)]
+    pub struct Ines2Header {
+        pub flags8: Ines2Flags8,
+        pub flags9: Ines2Flags9,
+        pub flags10: Ines2Flags10,
+        pub flags11: Ines2Flags11,
+        pub flags12: Ines2Flags12,
+        ignored: [u8; 3],
+    }
 }
+pub use types::*;
 
 pub fn rom_load(
     mut f: File,
