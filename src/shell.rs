@@ -81,7 +81,7 @@ enum Cli {
 
 pub fn run_shell(cpu: R<Mos6502>, interactive: bool) {
     #[cfg(unix)]
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, SIGINT_RECEIVED.clone())
+    signal_hook::flag::register(signal_hook::consts::SIGINT, SIGINT_RECEIVED.clone())
         .expect("Couldn't register a SIGINT handler");
 
     let mut rl = Editor::<()>::new();
@@ -118,7 +118,10 @@ pub fn run_shell(cpu: R<Mos6502>, interactive: bool) {
                 rl.add_history_entry(line);
                 let args = std::iter::once(">").chain(line.split_whitespace());
                 match Cli::try_parse_from(args) {
-                    Ok(cmd) => handle_cmd(cmd, cpu, &mut breakpoints),
+                    Ok(cmd) => {
+                        SIGINT_RECEIVED.store(false, Ordering::Relaxed);
+                        handle_cmd(cmd, cpu, &mut breakpoints);
+                    }
                     Err(e) => e.print().expect("Error writing Error"),
                 }
             }
