@@ -235,7 +235,7 @@ impl Mos6502 {
                 addr = self.buggy_read16(ind_addr);
             }
             AddrMode::IdxInd => {
-                let ind_addr = self.read8pc() as u16 + self.x as u16;
+                let ind_addr = self.read8pc().wrapping_add(self.x) as u16;
                 addr = self.read16(ind_addr);
             }
             AddrMode::IndIdx => {
