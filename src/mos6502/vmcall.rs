@@ -62,8 +62,33 @@ impl Mos6502 {
     }
 
     fn handle_args(&mut self) -> StepResult {
-        StepResult::UnhandledVmcall
+        let argv = self.get_ax();
+        let mut sp = self.read_zp16(0x00);
+        let mut args = sp - (self.paravirt_args.len() as u16 + 1) * 2;
+
+        self.write16(argv, args);
+
+        sp = args;
+
+        // This is doing something fairly simple, but it's expressed in a way that I can't really make sense of.
+        for i in 0..self.paravirt_args.len() {
+            let thearg = &self.paravirt_args[i];
+            sp -= thearg.len() as u16 + 1;
+            for (spi, b) in thearg.bytes().enumerate() {
+                self.bus.borrow_mut().write(sp + spi as u16, b);
+            }
+            self.bus.borrow_mut().write(sp + thearg.len() as u16, 0);
+
+            self.write16(args, sp);
+            args += 2;
+        }
+
+        self.write16(0x0000, sp);
+        self.set_ax(self.paravirt_args.len() as u16);
+
+        StepResult::Success
     }
+
     fn handle_exit(&mut self) -> StepResult {
         println!("Received Paravirtual Exit Request. Goodbye.");
         std::process::exit(1);
