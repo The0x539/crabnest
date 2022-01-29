@@ -20,7 +20,7 @@ bitflags! {
         const I = 0b00000100;
         const D = 0b00001000;
         const B = 0b00010000;
-        // unused 0b00100000;
+        const U = 0b00100000;
         const V = 0b01000000;
         const N = 0b10000000;
     }

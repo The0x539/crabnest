@@ -235,8 +235,8 @@ impl Mos6502 {
                 addr = self.buggy_read16(ind_addr);
             }
             AddrMode::IdxInd => {
-                let ind_addr = self.read8pc().wrapping_add(self.x) as u16;
-                addr = self.read16(ind_addr);
+                let ind_addr = self.read8pc().wrapping_add(self.x);
+                addr = self.read16(ind_addr as u16);
             }
             AddrMode::IndIdx => {
                 let ind = self.read8pc() as u16;
@@ -451,9 +451,12 @@ impl Mos6502 {
                 self.a = self.pop8();
                 self.setp(self.a);
             }
-            PHP => self.push8((self.p | StatReg::B).bits),
+            PHP => {
+                self.push8((self.p | StatReg::B).bits);
+            }
             PLP => {
                 self.p.bits = self.pop8();
+                self.p.insert(StatReg::U);
                 self.p.remove(StatReg::B);
             }
 
