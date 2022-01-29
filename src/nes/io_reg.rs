@@ -153,26 +153,26 @@ impl MemWrite for IoReg {
 
                 let mut cpu = self.cpu.borrow_mut();
 
-                cpu.advance_clk(1);
-                if cfg!(feature = "cyclecheck") {
-                    cpu.last_takeover_delay += 1;
+                macro_rules! tick {
+                    () => {
+                        cpu.advance_clk(1);
+                        #[cfg(feature = "cyclecheck")]
+                        {
+                            cpu.last_takeover_delay += 1;
+                        }
+                    };
                 }
 
+                tick!();
                 if (cpu.tk.borrow().clk_cyclenum / CLK_DIVISOR) % 2 != 0 {
-                    cpu.advance_clk(1);
-                    if cfg!(feature = "cyclecheck") {
-                        cpu.last_takeover_delay += 1;
-                    }
+                    tick!();
                 }
 
                 for i in 0..256 {
                     let byte = cpu.read8(readaddr + i);
-                    cpu.advance_clk(1);
+                    tick!();
                     cpu.write8(0x2004, byte);
-                    cpu.advance_clk(1);
-                    if cfg!(feature = "cyclecheck") {
-                        cpu.last_takeover_delay += 2;
-                    }
+                    tick!();
                 }
             }
 
