@@ -344,7 +344,7 @@ impl Mos6502 {
             TAY => transfer!(a -> y),
             TYA => transfer!(y -> a),
             TSX => transfer!(sp -> x),
-            TXS => transfer!(x -> sp),
+            TXS => self.sp = self.x,
 
             // arithmetic
             ADC => {
@@ -486,7 +486,7 @@ impl Mos6502 {
                 let val = val8!();
                 self.p.set(StatReg::N, val & 0x80 != 0);
                 self.p.set(StatReg::V, val & 0x40 != 0);
-                self.p.set(StatReg::Z, val == self.a);
+                self.p.set(StatReg::Z, val & self.a == 0);
             } //_ => eprintln!("{} NYI ({:02X})", self.instr_repr(oldpc), opcode),
 
             IUU => eprintln!("illegal instruction {opcode}"),
