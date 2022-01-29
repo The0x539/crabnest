@@ -590,7 +590,7 @@ impl Ppu {
 
         let tex_cre = canvas.texture_creator();
         let ppu_sdl = PpuSdl::new(canvas, tex_cre, |tc| {
-            tc.create_texture_streaming(PixelFormatEnum::RGBA4444, OUTPUT_WIDTH, OUTPUT_HEIGHT)
+            tc.create_texture_streaming(PixelFormatEnum::ABGR8888, OUTPUT_WIDTH, OUTPUT_HEIGHT)
                 .expect("Could not create texture")
         });
 
