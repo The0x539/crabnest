@@ -452,11 +452,11 @@ impl Mos6502 {
                 self.setp(self.a);
             }
             PHP => {
-                self.push8((self.p | StatReg::B).bits);
+                self.push8((self.p | StatReg::B | StatReg::U).bits);
             }
             PLP => {
                 self.p.bits = self.pop8();
-                self.p.insert(StatReg::U);
+                self.p.remove(StatReg::U);
                 self.p.remove(StatReg::B);
             }
 
