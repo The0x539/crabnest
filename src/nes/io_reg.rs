@@ -111,6 +111,7 @@ impl IoReg {
                 }
             }
         }
+        self.controller_strobe = val;
     }
 }
 
