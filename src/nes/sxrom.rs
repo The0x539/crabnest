@@ -3,7 +3,9 @@ use crate::{
     membus::MemWrite,
     memory::Memory,
     mos6502::{self, Mos6502},
-    r, R,
+    r,
+    reset_manager::Reset,
+    R,
 };
 
 use super::{
@@ -99,6 +101,8 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
         vram: info.vram.clone(),
     });
 
+    info.rm.borrow_mut().add_device(&cart);
+
     for i in 0..0x80 {
         info.cpu
             .borrow()
@@ -117,6 +121,13 @@ impl MemWrite for SxRom {
             val,
             self.cpu.borrow().tk.borrow().clk_cyclenum / mos6502::CLKDIVISOR,
         );
+        self.remap();
+    }
+}
+
+impl Reset for SxRom {
+    fn reset(&mut self) {
+        self.mmc1.reset();
         self.remap();
     }
 }

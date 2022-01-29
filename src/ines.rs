@@ -13,7 +13,7 @@ use crate::reset_manager::ResetManager;
 use crate::{r, R};
 
 pub struct RomInfo {
-    rm: R<ResetManager>,
+    pub rm: R<ResetManager>,
     pub cpu: R<Mos6502>,
     pub ppu: R<Ppu>,
     pub mirroring: Mirroring,
