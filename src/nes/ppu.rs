@@ -7,7 +7,6 @@ use modular_bitfield::prelude::*;
 use ouroboros::self_referencing;
 use sdl2::{
     pixels::PixelFormatEnum,
-    rect::Rect,
     render::{Texture, TextureCreator, WindowCanvas},
     video::WindowContext,
     EventPump, Sdl,
@@ -218,6 +217,7 @@ struct PpuSdl {
     #[borrows(tex_cre)]
     #[covariant]
     tex: Texture<'this>,
+    buf: Box<[[[u8; 4]; OUTPUT_WIDTH as usize]; OUTPUT_HEIGHT as usize]>,
 }
 
 pub struct Ppu {
@@ -589,10 +589,20 @@ impl Ppu {
             .expect("Could not enable integer scaling");
 
         let tex_cre = canvas.texture_creator();
-        let ppu_sdl = PpuSdl::new(canvas, tex_cre, |tc| {
-            tc.create_texture_streaming(PixelFormatEnum::ABGR8888, OUTPUT_WIDTH, OUTPUT_HEIGHT)
-                .expect("Could not create texture")
-        });
+        // TODO: ndarray? image?
+        let buf = vec![[[0_u8; 4]; OUTPUT_WIDTH as usize]; OUTPUT_HEIGHT as usize]
+            .into_boxed_slice()
+            .try_into()
+            .unwrap();
+        let ppu_sdl = PpuSdl::new(
+            canvas,
+            tex_cre,
+            |tc| {
+                tc.create_texture_streaming(PixelFormatEnum::ABGR8888, OUTPUT_WIDTH, OUTPUT_HEIGHT)
+                    .expect("Could not create texture")
+            },
+            buf,
+        );
 
         let cpu = cpu.borrow_mut();
 
@@ -624,6 +634,14 @@ impl Ppu {
         self.sdl_events.borrow_mut().pump_events();
 
         self.sdl.with_mut(|sdl| {
+            sdl.tex
+                .update(
+                    None,
+                    bytemuck::bytes_of(&**sdl.buf),
+                    OUTPUT_WIDTH as usize * 4,
+                )
+                .expect("Failed to copy bitmap to texture");
+
             sdl.canvas
                 .copy(&sdl.tex, None, None)
                 .expect("Failed to copy frame");
@@ -643,12 +661,9 @@ impl Ppu {
             self.state.palette_srgb[pixel_color][2],
             255,
         ];
-        let x = self.state.dotnum as i32 - 1;
-        let y = self.state.slnum as i32;
-        let rect = Rect::new(x, y, 1, 1);
-        self.sdl
-            .with_tex_mut(|tex| tex.update(rect, &pixdata, 4))
-            .expect("Couldn't blit pixel");
+        let x = self.state.dotnum as usize - 1;
+        let y = self.state.slnum as usize;
+        self.sdl.with_buf_mut(|buf| buf[y][x] = pixdata);
     }
 
     fn memfetch(&mut self) {

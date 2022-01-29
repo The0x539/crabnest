@@ -68,7 +68,6 @@ impl Timekeeper {
         let t_target = self.t_ref + self.clk_period * cyclenum;
         let t_now = Instant::now();
         if t_now < t_target {
-            println!("{}us ahead of schedule", (t_target - t_now).as_micros());
             std::thread::sleep(t_target - t_now);
         }
     }
