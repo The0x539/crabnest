@@ -11,7 +11,7 @@ use crate::{r, R};
 mod isa;
 mod vmcall;
 
-pub const CLKDIVISOR: u64 = 12;
+pub const CLK_DIVISOR: u64 = 12;
 
 bitflags! {
     pub struct StatReg: u8 {
@@ -54,12 +54,11 @@ pub struct Mos6502 {
 
     pub intr_status: Rc<Cell<Intr>>,
 
-    #[allow(dead_code)]
+    #[cfg(feature = "cyclecheck")]
     last_branch_delay: u64,
-    #[allow(dead_code)]
-    last_takeover_delay: u64,
+    #[cfg(feature = "cyclecheck")]
+    pub(super) last_takeover_delay: u64,
 
-    #[allow(dead_code)]
     paravirt_args: Vec<String>,
 
     #[cfg(windows)]
@@ -92,7 +91,7 @@ impl Mos6502 {
     pub fn advance_clk(&mut self, ncycles: usize) {
         self.tk
             .borrow_mut()
-            .advance_clk(ncycles as u64 * CLKDIVISOR);
+            .advance_clk(ncycles as u64 * CLK_DIVISOR);
     }
 
     pub fn reset(&mut self) {

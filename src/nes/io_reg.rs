@@ -5,7 +5,7 @@ use std::path::Path;
 use sdl2::{keyboard::Scancode, EventPump};
 
 use crate::membus::{MemRead, MemWrite};
-use crate::mos6502::Mos6502;
+use crate::mos6502::{Mos6502, CLK_DIVISOR};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::{r, R};
 
@@ -152,16 +152,27 @@ impl MemWrite for IoReg {
                 let readaddr = (val as u16) << 8;
 
                 let mut cpu = self.cpu.borrow_mut();
-                cpu.advance_clk(1);
 
-                // cpu.last_takeover_delay += 1;
+                cpu.advance_clk(1);
+                if cfg!(feature = "cyclecheck") {
+                    cpu.last_takeover_delay += 1;
+                }
+
+                if (cpu.tk.borrow().clk_cyclenum / CLK_DIVISOR) % 2 != 0 {
+                    cpu.advance_clk(1);
+                    if cfg!(feature = "cyclecheck") {
+                        cpu.last_takeover_delay += 1;
+                    }
+                }
 
                 for i in 0..256 {
                     let byte = cpu.read8(readaddr + i);
                     cpu.advance_clk(1);
                     cpu.write8(0x2004, byte);
                     cpu.advance_clk(1);
-                    // cpu.last_takeover_delay += 2;
+                    if cfg!(feature = "cyclecheck") {
+                        cpu.last_takeover_delay += 2;
+                    }
                 }
             }
 

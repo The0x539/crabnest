@@ -119,7 +119,7 @@ impl MemWrite for SxRom {
         self.mmc1.reg_write(
             addr as usize / 0x2000,
             val,
-            self.cpu.borrow().tk.borrow().clk_cyclenum / mos6502::CLKDIVISOR,
+            self.cpu.borrow().tk.borrow().clk_cyclenum / mos6502::CLK_DIVISOR,
         );
         self.remap();
     }
