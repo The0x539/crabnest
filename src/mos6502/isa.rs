@@ -141,11 +141,26 @@ fn alu_add(a: u8, b: u8, carry: u8) -> AluResult {
     let val = a.wrapping_add(b).wrapping_add(carry);
     let z = val == 0;
     let n = val > 0x7F;
-    let c = (a as u16 + b as u16) & 0xFF00 != 0;
+    let c = (a as u16 + b as u16 + carry as u16) & 0xFF00 != 0;
 
     let v = (a as i8)
         .checked_add(b as i8)
         .and_then(|ab| ab.checked_add(carry as i8))
+        .is_none();
+
+    AluResult { val, z, n, c, v }
+}
+
+fn alu_sub(a: u8, b: u8, carry: u8) -> AluResult {
+    let cc = 1 - carry;
+    let val = a.wrapping_sub(b).wrapping_sub(cc);
+    let z = val == 0;
+    let n = val > 0x7F;
+    let c = (a as i16 - b as i16 - cc as i16).to_le_bytes()[1] == 0;
+
+    let v = (a as i8)
+        .checked_sub(b as i8)
+        .and_then(|ab| ab.checked_sub(cc as i8))
         .is_none();
 
     AluResult { val, z, n, c, v }
@@ -342,13 +357,13 @@ impl Mos6502 {
                 self.p.set(StatReg::V, r.v);
             }
             SBC => {
-                let a = self.a as i16;
-                let b = val8!() as i16;
-                let c = 1 - self.getc() as i16;
-                let diff = a - b - c;
-                self.setc(diff >= 0);
-                self.a = diff as u8;
-                self.setp(self.a);
+                let subtrahend = val8!();
+                let r = alu_sub(self.a, subtrahend, self.getc());
+                self.a = r.val;
+                self.p.set(StatReg::N, r.n);
+                self.p.set(StatReg::Z, r.z);
+                self.p.set(StatReg::C, r.c);
+                self.p.set(StatReg::V, r.v);
             }
 
             // bitwise ops
