@@ -61,6 +61,9 @@ pub struct Mos6502 {
 
     #[allow(dead_code)]
     paravirt_args: Vec<String>,
+
+    #[cfg(windows)]
+    open_files: slab::Slab<std::fs::File>,
 }
 
 impl Mos6502 {
@@ -80,6 +83,8 @@ impl Mos6502 {
             intr_status: Rc::new(Cell::new(Intr::None)),
             last_branch_delay: 0,
             last_takeover_delay: 0,
+            #[cfg(windows)]
+            open_files: Default::default(),
         };
         r(cpu)
     }

@@ -19,3 +19,4 @@ signal-hook = "0.3.13"
 
 [target.'cfg(windows)'.dependencies]
 sdl2 = { version = "0.35.1", features = ["bundled"] }
+slab = "0.4"

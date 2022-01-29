@@ -1,3 +1,14 @@
+use std::fs::File;
+
+#[cfg(unix)]
+use std::{
+    ffi::OsString,
+    os::unix::prelude::{IntoRawFd, OpenOptionsExt, OsStringExt},
+};
+
+#[cfg(windows)]
+use std::io::{Read, Write};
+
 use super::{Mos6502, StepResult};
 
 const VMCALL_ARGS: u8 = 0;
@@ -14,6 +25,14 @@ fn unwrap_result(r: nix::Result<usize>) -> u16 {
     match r {
         Ok(n) => n as u16,
         Err(e) => e as i32 as u16,
+    }
+}
+
+#[cfg(windows)]
+fn unwrap_result(r: std::io::Result<usize>) -> u16 {
+    match r {
+        Ok(n) => n as u16,
+        Err(e) => e.raw_os_error().unwrap() as u16,
     }
 }
 
@@ -49,57 +68,6 @@ impl Mos6502 {
         println!("Received Paravirtual Exit Request. Goodbye.");
         std::process::exit(1);
     }
-    fn handle_open(&mut self) -> StepResult {
-        StepResult::UnhandledVmcall
-    }
-    fn handle_close(&mut self) -> StepResult {
-        StepResult::UnhandledVmcall
-    }
-    #[cfg(unix)]
-    fn handle_read(&mut self) -> StepResult {
-        let count = self.get_ax() as usize;
-        let mut buf = self.pop_parm(2);
-        let fd = self.pop_parm(2) as i32;
-
-        let mut data = vec![0; count];
-        let ret = nix::unistd::read(fd, &mut data);
-
-        if let Ok(r) = ret {
-            for i in 0..r {
-                self.write8(buf, data[i]);
-                buf += 1;
-            }
-        }
-
-        self.set_ax(unwrap_result(ret));
-
-        StepResult::Success
-    }
-    #[cfg(not(unix))]
-    fn handle_read(&mut self) -> StepResult {
-        StepResult::UnhandledVmcall
-    }
-    #[cfg(unix)]
-    fn handle_write(&mut self) -> StepResult {
-        let count = self.get_ax() as usize;
-        let mut buf = self.pop_parm(2);
-        let fd = self.pop_parm(3) as i32;
-
-        let mut data = vec![0; count];
-        for i in 0..count {
-            data[i] = self.read8(buf);
-            buf += 1;
-        }
-        let ret = unwrap_result(nix::unistd::write(fd, &data));
-
-        self.set_ax(ret);
-
-        StepResult::Success
-    }
-    #[cfg(not(unix))]
-    fn handle_write(&mut self) -> StepResult {
-        StepResult::UnhandledVmcall
-    }
     fn handle_dump(&mut self) -> StepResult {
         println!("EXIT STATE:");
         println!("PC: 0x{:04x}", self.pc);
@@ -133,5 +101,145 @@ impl Mos6502 {
             VMCALL_DUMP => self.handle_dump(),
             _ => StepResult::UnhandledVmcall,
         }
+    }
+
+    fn handle_open(&mut self) -> StepResult {
+        let mode = self.pop_parm(self.y as u16 - 4);
+        let flags = self.pop_parm(2);
+        let name = self.pop_parm(2);
+
+        let mut path = Vec::new();
+        for addr in name.. {
+            let byte = self.read8(addr);
+            if byte == b'\0' {
+                break;
+            }
+            path.push(byte);
+        }
+        #[cfg(windows)]
+        let path = String::from_utf8(path).unwrap(/* ¯\_(ツ)_/¯ */);
+        #[cfg(unix)]
+        let path = OsString::from_vec(path);
+
+        let mut opts = File::options();
+
+        macro_rules! flag {
+            ($mask:literal, $method:ident) => {
+                if flags & $mask != 0 {
+                    opts.$method(true);
+                }
+            };
+        }
+
+        flag!(0x01, read);
+        flag!(0x02, write);
+        flag!(0x10, create);
+        flag!(0x20, truncate);
+        flag!(0x40, append);
+        flag!(0x80, create_new);
+
+        #[cfg(unix)]
+        opts.mode(mode as u32);
+        #[cfg(windows)]
+        let _ = mode;
+
+        let ret = match opts.open(path) {
+            Ok(f) => {
+                #[cfg(unix)]
+                let fd = f.into_raw_fd() as u16;
+                #[cfg(windows)]
+                let fd = self.open_files.insert(f) as u16 + 3;
+                fd
+            }
+            Err(e) => e.raw_os_error().unwrap() as u16,
+        };
+        self.set_ax(ret);
+
+        StepResult::Success
+    }
+
+    fn handle_close(&mut self) -> StepResult {
+        let fd = self.get_ax();
+
+        #[cfg(unix)]
+        let ret = unwrap_result(nix::unistd::close(fd as i32).map(|()| 0));
+
+        #[cfg(windows)]
+        let ret = match fd {
+            0 | 1 | 2 => -1_i32 as u16, // whatever
+            n => match self.open_files.try_remove(n as usize - 3) {
+                Some(_) => 0,
+                None => -1_i32 as u16,
+            },
+        };
+
+        self.set_ax(ret);
+        StepResult::Success
+    }
+
+    fn handle_read(&mut self) -> StepResult {
+        let count = self.get_ax() as usize;
+        let mut buf = self.pop_parm(2);
+        let fd = self.pop_parm(2) as i32;
+
+        let mut data = vec![0; count];
+
+        #[cfg(unix)]
+        let ret = nix::unistd::read(fd, &mut data);
+
+        #[cfg(windows)]
+        let ret = match fd {
+            0 | 1 | 2 => std::io::stdin().read(&mut data),
+            n => {
+                if let Some(f) = self.open_files.get_mut(n as usize - 3) {
+                    f.read(&mut data)
+                } else {
+                    Err(std::io::Error::from_raw_os_error(-1))
+                }
+            }
+        };
+
+        if let Ok(r) = ret {
+            for i in 0..r {
+                self.write8(buf, data[i]);
+                buf += 1;
+            }
+        }
+
+        self.set_ax(unwrap_result(ret));
+
+        StepResult::Success
+    }
+
+    fn handle_write(&mut self) -> StepResult {
+        let count = self.get_ax() as usize;
+        let mut buf = self.pop_parm(2);
+        let fd = self.pop_parm(3) as i32;
+
+        let mut data = vec![0; count];
+        for i in 0..count {
+            data[i] = self.read8(buf);
+            buf += 1;
+        }
+
+        #[cfg(unix)]
+        let ret = nix::unistd::write(fd, &data);
+
+        #[cfg(windows)]
+        let ret = match fd {
+            0 | 1 => std::io::stdout().write(&data),
+            2 => std::io::stderr().write(&data),
+            n => {
+                if let Some(f) = self.open_files.get_mut(n as usize - 3) {
+                    f.write(&data)
+                } else {
+                    Err(std::io::Error::from_raw_os_error(-1))
+                }
+            }
+        };
+
+        self.set_ax(unwrap_result(ret));
+
+        StepResult::Success
     }
 }
