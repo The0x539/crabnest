@@ -1,3 +1,5 @@
+use crate::mos6502::Intr;
+
 use super::{Mos6502, StatReg, StepResult};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -137,6 +139,12 @@ impl Mos6502 {
     }
 
     pub fn step(&mut self) -> StepResult {
+        match self.intr_status.get() {
+            Intr::Irq => self.handle_irq(),
+            Intr::Nmi => self.handle_nmi(),
+            Intr::None => 0,
+        };
+
         let opcode = self.read8pc();
         let mode = ADDR_MODES[opcode as usize];
         let instr = INSTRS[opcode as usize];
@@ -219,14 +227,13 @@ impl Mos6502 {
             VMC => return self.handle_vmcall(imm8),
 
             BRK => {
-                self.push16(self.pc + 1);
-                self.push8((self.p | StatReg::B).bits);
-                self.pc = self.read16(0xFFFE);
+                self.pc += 1; // TODO: just "decode" another byte?
+                self.handle_irq();
             }
 
             RTI => {
                 self.p.bits = self.pop8();
-                self.pc = self.pop16() - 1;
+                self.pc = self.pop16();
             }
 
             NOP => (),

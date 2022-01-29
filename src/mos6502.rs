@@ -57,7 +57,7 @@ pub struct Mos6502 {
     #[cfg(feature = "cyclecheck")]
     last_branch_delay: u64,
     #[cfg(feature = "cyclecheck")]
-    pub(super) last_takeover_delay: u64,
+    pub(super) last_takeover_delay: Rc<Cell<u64>>,
 
     paravirt_args: Vec<String>,
 
@@ -80,8 +80,10 @@ impl Mos6502 {
             y: 0,
             p: StatReg::empty(),
             intr_status: Rc::new(Cell::new(Intr::None)),
+            #[cfg(feature = "cyclecheck")]
             last_branch_delay: 0,
-            last_takeover_delay: 0,
+            #[cfg(feature = "cyclecheck")]
+            last_takeover_delay: Rc::new(Cell::new(0)),
             #[cfg(windows)]
             open_files: Default::default(),
         };
@@ -95,7 +97,7 @@ impl Mos6502 {
     }
 
     pub fn reset(&mut self) {
-        let mut bus = self.bus.borrow_mut();
+        let bus = self.bus.borrow();
         let pc_lo = bus.read(0xfffc);
         let pc_hi = bus.read(0xfffd);
         self.pc = u16::from_le_bytes([pc_lo, pc_hi]);
@@ -120,7 +122,7 @@ impl Mos6502 {
     }
 
     pub fn read8(&self, addr: u16) -> u8 {
-        self.bus.borrow_mut().read(addr)
+        self.bus.borrow().read(addr)
     }
 
     fn read16(&self, addr: u16) -> u16 {
@@ -157,7 +159,7 @@ impl Mos6502 {
     }
 
     pub fn write8(&mut self, addr: u16, val: u8) {
-        self.bus.borrow_mut().write(addr, val);
+        self.bus.borrow().write(addr, val);
     }
 
     pub fn write16(&mut self, addr: u16, val: u16) {
@@ -186,5 +188,25 @@ impl Mos6502 {
         let lo = self.pop8();
         let hi = self.pop8();
         u16::from_le_bytes([lo, hi])
+    }
+
+    fn handle_irq(&mut self) -> usize {
+        self.intr_status.set(Intr::None);
+
+        self.push16(self.pc);
+        self.push8((self.p | StatReg::B).bits);
+
+        self.pc = self.read16(0xFFFE);
+        7
+    }
+
+    fn handle_nmi(&mut self) -> usize {
+        self.intr_status.set(Intr::None);
+
+        self.push16(self.pc);
+        self.push8((self.p | StatReg::B).bits);
+
+        self.pc = self.read16(0xFFFA);
+        8
     }
 }

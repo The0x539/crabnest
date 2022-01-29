@@ -54,14 +54,14 @@ impl MemBus {
         bus
     }
 
-    pub fn read(&mut self, addr: u16) -> u8 {
+    pub fn read(&self, addr: u16) -> u8 {
         let pagenum = addr as usize / PAGESIZE;
         assert!(pagenum < NPAGES);
 
         let unmixed_val: u8;
         let mut lane_mask: u8 = 0xFF;
 
-        match &mut self.read_mappings[pagenum] {
+        match &self.read_mappings[pagenum] {
             ReadMapping::Unmapped => unmixed_val = 0x00,
             ReadMapping::Handler { handler, offset } => {
                 let final_addr = addr as usize % PAGESIZE + *offset;
@@ -77,11 +77,11 @@ impl MemBus {
         unmixed_val | !lane_mask
     }
 
-    pub fn write(&mut self, addr: u16, val: u8) {
+    pub fn write(&self, addr: u16, val: u8) {
         let pagenum = addr as usize / PAGESIZE;
         assert!(pagenum < NPAGES);
 
-        match &mut self.write_mappings[pagenum] {
+        match &self.write_mappings[pagenum] {
             WriteMapping::Unmapped => (),
             WriteMapping::Handler { handler, offset } => {
                 let final_addr = addr as usize % PAGESIZE + *offset;

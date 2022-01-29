@@ -2,11 +2,15 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
+#[cfg(feature = "cyclecheck")]
+use std::{cell::Cell, rc::Rc};
+
 use sdl2::{keyboard::Scancode, EventPump};
 
-use crate::membus::{MemRead, MemWrite};
-use crate::mos6502::{Mos6502, CLK_DIVISOR};
+use crate::membus::{MemBus, MemRead, MemWrite};
+use crate::mos6502::{self, Mos6502};
 use crate::reset_manager::{Reset, ResetManager};
+use crate::timekeeper::Timekeeper;
 use crate::{r, R};
 
 pub const CONTROLLER_NBUTTONS: usize = 8;
@@ -24,7 +28,10 @@ pub enum Button {
 }
 
 pub struct IoReg {
-    cpu: R<Mos6502>,
+    cpu_mem: R<MemBus>,
+    tk: R<Timekeeper>,
+    #[cfg(feature = "cyclecheck")]
+    cpu_last_takeover_delay: Rc<Cell<u64>>,
     event_pump: R<EventPump>,
     controller_strobe: bool,
     controller_shiftregs: [u8; 2],
@@ -39,7 +46,10 @@ impl IoReg {
         cscheme_path: &Path,
     ) -> io::Result<R<Self>> {
         let io = r(Self {
-            cpu: cpu.clone(),
+            cpu_mem: cpu.borrow().bus.clone(),
+            tk: cpu.borrow().tk.clone(),
+            #[cfg(feature = "cyclecheck")]
+            cpu_last_takeover_delay: cpu.borrow().last_takeover_delay.clone(),
             event_pump,
             controller_strobe: false,
             controller_shiftregs: [0, 0],
@@ -87,7 +97,7 @@ impl IoReg {
 
     fn set_strobe(&mut self, val: bool) {
         if self.controller_strobe && !val {
-            self.cpu.borrow_mut().tk.borrow_mut().sync();
+            self.tk.borrow_mut().sync();
 
             let mut ev = self.event_pump.borrow_mut();
             ev.pump_events();
@@ -120,7 +130,7 @@ impl MemRead for IoReg {
 
                 let bit: u8;
                 if self.controller_strobe {
-                    self.cpu.borrow_mut().tk.borrow_mut().sync();
+                    self.tk.borrow_mut().sync();
 
                     let mut ev = self.event_pump.borrow_mut();
                     ev.pump_events();
@@ -151,27 +161,27 @@ impl MemWrite for IoReg {
             0x14 => {
                 let readaddr = (val as u16) << 8;
 
-                let mut cpu = self.cpu.borrow_mut();
-
                 macro_rules! tick {
                     () => {
-                        cpu.advance_clk(1);
+                        self.tk.borrow_mut().advance_clk(mos6502::CLK_DIVISOR);
                         #[cfg(feature = "cyclecheck")]
                         {
-                            cpu.last_takeover_delay += 1;
+                            self.cpu_last_takeover_delay
+                                .set(self.cpu_last_takeover_delay.get() + 1);
                         }
                     };
                 }
 
                 tick!();
-                if (cpu.tk.borrow().clk_cyclenum / CLK_DIVISOR) % 2 != 0 {
+                if (self.tk.borrow().clk_cyclenum / mos6502::CLK_DIVISOR) % 2 != 0 {
                     tick!();
                 }
 
+                let mem = self.cpu_mem.borrow();
                 for i in 0..256 {
-                    let byte = cpu.read8(readaddr + i);
+                    let byte = mem.read(readaddr + i);
                     tick!();
-                    cpu.write8(0x2004, byte);
+                    mem.write(0x2004, byte);
                     tick!();
                 }
             }

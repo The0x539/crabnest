@@ -675,7 +675,7 @@ impl Ppu {
             _ => return,
         };
 
-        *dst = self.bus.borrow_mut().read(src);
+        *dst = self.bus.borrow().read(src);
     }
 
     fn sprite_memfetch(&mut self) {
@@ -713,7 +713,7 @@ impl Ppu {
 
         bmp_addr += tile as u16 * 16 + y_offset as u16;
 
-        let mut bus = self.bus.borrow_mut();
+        let bus = self.bus.borrow();
         match (st.dotnum - 1) % 8 {
             1 => {
                 bus.read(st.nt_addr());
@@ -846,7 +846,7 @@ impl MemRead for Ppu {
                     } else {
                         vram_addr
                     };
-                    std::mem::replace(&mut state.vram_read_buf, self.bus.borrow_mut().read(addr))
+                    std::mem::replace(&mut state.vram_read_buf, self.bus.borrow().read(addr))
                 };
                 state.inc_vram_addr_rw();
                 val
@@ -946,7 +946,7 @@ impl MemWrite for Ppu {
                     } else {
                         vram_addr
                     };
-                    self.bus.borrow_mut().write(addr, val);
+                    self.bus.borrow().write(addr, val);
                 }
                 self.state.inc_vram_addr_rw();
             }

@@ -151,10 +151,10 @@ fn handle_cmd(command: Cli, cpu: &mut Mos6502, breakpoints: &mut BTreeSet<u16>) 
         Cli::Regs => cmd_regs(cpu),
         Cli::Peek { addr } => {
             let addr = addr.0;
-            let val = cpu.bus.borrow_mut().read(addr);
+            let val = cpu.bus.borrow().read(addr);
             println!("  ${:04x}: {:02x}", addr, val);
         }
-        Cli::Poke { addr, value } => cpu.bus.borrow_mut().write(addr.0, value.0),
+        Cli::Poke { addr, value } => cpu.bus.borrow().write(addr.0, value.0),
         Cli::Dumpmem { start, len } => cmd_dumpmem(cpu, start.0, len),
         Cli::Irq => cpu.raise_irq(),
         Cli::Nmi => cpu.raise_nmi(),
@@ -231,7 +231,7 @@ fn cmd_dumpmem(cpu: &Mos6502, addr: u16, count: u16) {
         let a = addr + n;
         print!("  ${a:04x}:");
         for i in 0..4 {
-            let v = cpu.bus.borrow_mut().read(a + i);
+            let v = cpu.bus.borrow().read(a + i);
             print!(" {v:02x}");
         }
         println!();

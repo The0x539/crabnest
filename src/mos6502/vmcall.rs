@@ -75,9 +75,9 @@ impl Mos6502 {
             let thearg = &self.paravirt_args[i];
             sp -= thearg.len() as u16 + 1;
             for (spi, b) in thearg.bytes().enumerate() {
-                self.bus.borrow_mut().write(sp + spi as u16, b);
+                self.bus.borrow().write(sp + spi as u16, b);
             }
-            self.bus.borrow_mut().write(sp + thearg.len() as u16, 0);
+            self.bus.borrow().write(sp + thearg.len() as u16, 0);
 
             self.write16(args, sp);
             args += 2;
