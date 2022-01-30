@@ -520,6 +520,8 @@ impl Channel for Dmc {
             } else {
                 self.output_unit.bits_remaining -= 1;
             }
+        } else {
+            self.timer -= 1;
         }
     }
 
