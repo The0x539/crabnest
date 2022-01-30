@@ -122,7 +122,7 @@ impl Mmc1 {
     pub fn reg_write(&mut self, regnum: usize, val: u8, cpu_cyclenum: u64) {
         assert!(regnum < 4);
 
-        if cpu_cyclenum - self.last_cpu_cyclenum == 1 {
+        if cpu_cyclenum.wrapping_sub(self.last_cpu_cyclenum) == 1 {
             self.last_cpu_cyclenum = cpu_cyclenum;
             return;
         }

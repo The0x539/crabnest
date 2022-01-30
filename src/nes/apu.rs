@@ -507,7 +507,6 @@ impl Channel for Dmc {
 
             self.output_unit.rsr >>= 1;
 
-            self.output_unit.bits_remaining -= 1;
             if self.output_unit.bits_remaining == 0 {
                 self.output_unit.bits_remaining = 8;
                 if let Some(v) = self.empty_sample_buffer(control) {
@@ -516,6 +515,8 @@ impl Channel for Dmc {
                 } else {
                     self.output_unit.silence = true
                 }
+            } else {
+                self.output_unit.bits_remaining -= 1;
             }
         }
     }
