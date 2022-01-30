@@ -19,6 +19,7 @@ mod shell;
 mod timekeeper;
 
 mod nes {
+    pub mod apu;
     pub mod io_reg;
     pub mod mmc1;
     pub mod nrom;
