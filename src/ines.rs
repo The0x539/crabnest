@@ -7,6 +7,7 @@ use sdl2::Sdl;
 
 use crate::memory::Memory;
 use crate::mos6502::Mos6502;
+use crate::nes::apu::Apu;
 use crate::nes::io_reg::IoReg;
 use crate::nes::ppu::Ppu;
 use crate::reset_manager::ResetManager;
@@ -295,7 +296,11 @@ fn setup_common(
 
     let event_pump = r(sdl.event_pump().expect("Could not set up event pump"));
 
-    IoReg::setup(rm, cpu, &event_pump, cscheme_path)?;
+    let io_reg = IoReg::new(rm, cpu, event_pump.clone(), cscheme_path)?;
+
+    let apu = Apu::new(sdl, rm, cpu);
+
+    crate::nes::pageforty::setup(&mut *cpu.borrow().bus.borrow_mut(), io_reg, apu);
 
     let ppu = Ppu::new(sdl, rm, cpu, event_pump, scale);
 

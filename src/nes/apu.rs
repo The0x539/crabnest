@@ -418,7 +418,7 @@ fn inv_or_zero(n: f32) -> f32 {
     }
 }
 
-struct Apu {
+pub struct Apu {
     regs: ApuRegs,
 
     pulse1: Pulse,

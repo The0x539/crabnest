@@ -23,6 +23,7 @@ mod nes {
     pub mod io_reg;
     pub mod mmc1;
     pub mod nrom;
+    pub mod pageforty;
     pub mod ppu;
     pub mod sxrom;
 }

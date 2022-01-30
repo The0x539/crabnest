@@ -39,7 +39,7 @@ pub struct IoReg {
 }
 
 impl IoReg {
-    fn new(
+    pub fn new(
         rm: &R<ResetManager>,
         cpu: &R<Mos6502>,
         event_pump: R<EventPump>,
@@ -76,23 +76,6 @@ impl IoReg {
         }
 
         Ok(io)
-    }
-
-    pub fn setup(
-        rm: &R<ResetManager>,
-        cpu: &R<Mos6502>,
-        event_pump: &R<EventPump>,
-        cscheme_path: &Path,
-    ) -> io::Result<()> {
-        let io = Self::new(rm, cpu, event_pump.clone(), cscheme_path)?;
-
-        let cpu = cpu.borrow_mut();
-        let mut bus = cpu.bus.borrow_mut();
-
-        bus.set_read_handler(0x40, &io, 0);
-        bus.set_write_handler(0x40, &io, 0);
-
-        Ok(())
     }
 
     fn set_strobe(&mut self, val: bool) {
