@@ -10,7 +10,7 @@ use sdl2::{
 };
 
 use crate::{
-    membus::{MemRead, MemWrite},
+    membus::{MemBus, MemRead, MemWrite},
     mos6502::{self, Intr, Mos6502},
     r,
     reset_manager::ResetManager,
@@ -29,6 +29,9 @@ const PULSE_SEQUENCES: [[u8; 8]; 4] = [
     [0, 0, 0, 0, 0, 0, 1, 1],
     [0, 0, 0, 0, 1, 1, 1, 1],
     [1, 1, 1, 1, 1, 1, 0, 0],
+];
+const DMC_RATES: [u16; 16] = [
+    428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
 ];
 
 #[bitfield(bits = 8)]
@@ -425,6 +428,103 @@ impl Channel for Noise {
     }
 }
 
+struct DmcMemReader {
+    mem: R<MemBus>,
+    start: u16,
+    addr: u16,
+    len: u16,
+    bytes_remaining: u16,
+}
+
+impl DmcMemReader {
+    fn next(&mut self, control: &DmcControl) -> Option<u8> {
+        if self.bytes_remaining == 0 && control.repeat() {
+            self.addr = self.start;
+            self.bytes_remaining = self.len;
+        }
+
+        if self.bytes_remaining > 0 {
+            // TODO: "stall the CPU"
+            let val = self.mem.borrow().read(self.addr);
+            self.bytes_remaining -= 1;
+            self.addr = self.addr.checked_add(1).unwrap_or(0x8000);
+            Some(val)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Default)]
+struct DmcOutputUnit {
+    rsr: u8,
+    bits_remaining: u8,
+    output_level: u8,
+    silence: bool,
+}
+
+struct Dmc {
+    mem_reader: DmcMemReader,
+    interrupt_flag: bool,
+    sample_buffer: Option<u8>,
+    timer: u8,
+    output_unit: DmcOutputUnit,
+}
+
+impl Dmc {
+    fn empty_sample_buffer(&mut self, control: &DmcControl) -> Option<u8> {
+        let val = self.sample_buffer;
+        self.sample_buffer = self.mem_reader.next(control);
+        val
+    }
+}
+
+impl Channel for Dmc {
+    type Control = DmcControl;
+
+    fn set_lc(&mut self, _val: u8) {}
+
+    fn quarter_frame(&mut self, _control: &Self::Control) {}
+
+    fn half_frame(&mut self, _control: &mut Self::Control) {}
+
+    fn tick(&mut self, control: &Self::Control) {
+        if self.timer == 0 {
+            self.timer = (DMC_RATES[control.freq_idx() as usize] / 2) as u8;
+
+            if !self.output_unit.silence {
+                let v = &mut self.output_unit.output_level;
+                if self.output_unit.rsr & 1 != 0 {
+                    if *v <= 125 {
+                        *v += 2;
+                    }
+                } else {
+                    if *v >= 2 {
+                        *v -= 2;
+                    }
+                }
+            }
+
+            self.output_unit.rsr >>= 1;
+
+            self.output_unit.bits_remaining -= 1;
+            if self.output_unit.bits_remaining == 0 {
+                self.output_unit.bits_remaining = 8;
+                if let Some(v) = self.empty_sample_buffer(control) {
+                    self.output_unit.rsr = v;
+                    self.output_unit.silence = false;
+                } else {
+                    self.output_unit.silence = true
+                }
+            }
+        }
+    }
+
+    fn sample(&self, _control: &Self::Control) -> u8 {
+        self.output_unit.output_level
+    }
+}
+
 fn inv_or_zero(n: f32) -> f32 {
     if n == 0.0 {
         0.0
@@ -440,6 +540,7 @@ pub struct Apu {
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
+    dmc: Dmc,
 
     frame_step: u8,
     intr: Rc<Cell<Intr>>,
@@ -470,12 +571,14 @@ impl Apu {
             self.pulse2.quarter_frame(&self.regs.pulse2);
             self.triangle.quarter_frame(&self.regs.triangle);
             self.noise.quarter_frame(&self.regs.noise);
+            self.dmc.quarter_frame(&self.regs.dmc);
         }
         if do_hf {
             self.pulse1.half_frame(&mut self.regs.pulse1);
             self.pulse2.half_frame(&mut self.regs.pulse2);
             self.triangle.half_frame(&mut self.regs.triangle);
             self.noise.half_frame(&mut self.regs.noise);
+            self.dmc.half_frame(&mut self.regs.dmc);
         }
         if do_irq {
             self.intr.set(Intr::Irq);
@@ -488,7 +591,7 @@ impl Apu {
     fn mix_sample(&mut self) {
         let triangle = self.triangle.sample(&self.regs.triangle) as f32;
         let noise = self.noise.sample(&self.regs.noise) as f32;
-        let dmc = 0_f32;
+        let dmc = self.dmc.sample(&self.regs.dmc) as f32;
         let pulse1 = self.pulse1.sample(&self.regs.pulse1) as f32;
         let pulse2 = self.pulse2.sample(&self.regs.pulse2) as f32;
 
@@ -522,6 +625,20 @@ impl Apu {
 
         let cpu = cpu.borrow();
 
+        let dmc = Dmc {
+            mem_reader: DmcMemReader {
+                mem: cpu.bus.clone(),
+                start: 0,
+                addr: 0,
+                len: 0,
+                bytes_remaining: 0,
+            },
+            interrupt_flag: false,
+            sample_buffer: None,
+            timer: 0,
+            output_unit: Default::default(),
+        };
+
         let mut apu = Apu {
             regs: Zeroable::zeroed(),
 
@@ -529,6 +646,7 @@ impl Apu {
             pulse2: Default::default(),
             triangle: Default::default(),
             noise: Default::default(),
+            dmc,
 
             frame_step: 0,
             intr: cpu.intr_status.clone(),
@@ -619,6 +737,7 @@ impl Timed for ApuCycleTimer {
             ref mut pulse2,
             ref mut triangle,
             ref mut noise,
+            ref mut dmc,
             ..
         } = &mut *self.apu.borrow_mut();
 
@@ -627,6 +746,7 @@ impl Timed for ApuCycleTimer {
             pulse1.tick(&regs.pulse1);
             pulse2.tick(&regs.pulse2);
             noise.tick(&regs.noise);
+            dmc.tick(&regs.dmc);
         }
 
         self.even_cycle = !self.even_cycle;
