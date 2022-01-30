@@ -308,6 +308,8 @@ impl Channel for Pulse {
         if self.timer == 0 {
             self.timer = period;
             self.sequence_pos = self.sequence_pos.checked_sub(1).unwrap_or(7);
+        } else {
+            self.timer -= 1;
         }
 
         self.sequence = PULSE_SEQUENCES[control.duty.duty() as usize];
