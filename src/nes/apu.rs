@@ -232,7 +232,7 @@ trait Channel {
     type Control;
     fn set_lc(&mut self, val: u8);
     fn quarter_frame(&mut self, control: &Self::Control);
-    fn half_frame(&mut self, control: &Self::Control);
+    fn half_frame(&mut self, control: &mut Self::Control);
     fn tick(&mut self, control: &Self::Control);
     fn sample(&self, control: &Self::Control) -> u8;
 }
@@ -243,12 +243,15 @@ struct Pulse {
     sequence_pos: usize,
     timer: u16,
     length_counter: u8,
+    sweep_counter: u8,
+    reload_sweep: bool,
     is_pulse2: bool,
     envelope: Envelope,
 }
 
 impl Pulse {
-    fn period(&self, control: &PulseControl, raw_period: u16) -> u16 {
+    fn target_period(&self, control: &PulseControl) -> u16 {
+        let raw_period = control.timer.get();
         if control.sweep.enabled() {
             let change_amount = raw_period >> control.sweep.shift_count();
             match (control.sweep.negative(), self.is_pulse2) {
@@ -258,6 +261,19 @@ impl Pulse {
             }
         } else {
             raw_period
+        }
+    }
+
+    fn update_period(&mut self, control: &mut PulseControl) {
+        let period = self.target_period(control);
+        if control.sweep.enabled() && self.sweep_counter == 0 && period <= 0x07FF {
+            control.timer.set(period);
+        }
+        if self.sweep_counter == 0 || self.reload_sweep {
+            self.reload_sweep = false;
+            self.sweep_counter = control.sweep.period();
+        } else {
+            self.sweep_counter -= 1;
         }
     }
 }
@@ -276,16 +292,15 @@ impl Channel for Pulse {
             .quarter_frame(control.duty.lch(), control.duty.volume());
     }
 
-    fn half_frame(&mut self, control: &Self::Control) {
+    fn half_frame(&mut self, control: &mut Self::Control) {
         if !control.duty.lch() {
             self.length_counter = self.length_counter.saturating_sub(1);
         }
-        // TODO: update sweep period
+        self.update_period(control);
     }
 
     fn tick(&mut self, control: &Self::Control) {
-        let raw_period = control.timer.get();
-        let period = self.period(control, raw_period);
+        let period = control.timer.get();
 
         if self.timer == 0 {
             self.timer = period;
@@ -300,12 +315,7 @@ impl Channel for Pulse {
             return 0;
         }
 
-        let raw_period = control.timer.get();
-        if raw_period < 8 {
-            return 0;
-        }
-        let period = self.period(control, raw_period);
-        if period < 8 || period > 0x07FF {
+        if control.timer.get() < 8 || self.target_period(control) > 0x07FF {
             return 0;
         }
 
@@ -346,7 +356,7 @@ impl Channel for Triangle {
         }
     }
 
-    fn half_frame(&mut self, control: &Self::Control) {
+    fn half_frame(&mut self, control: &mut Self::Control) {
         if !control.counter.control() {
             self.length_counter = self.length_counter.saturating_sub(1);
         }
@@ -399,7 +409,7 @@ impl Channel for Noise {
         self.envelope.quarter_frame(control.lch(), control.volume());
     }
 
-    fn half_frame(&mut self, _control: &Self::Control) {}
+    fn half_frame(&mut self, _control: &mut NoiseControl) {}
 
     fn tick(&mut self, control: &Self::Control) {
         let feedback = self.sr_bit(0) ^ self.sr_bit(if control.mode() { 6 } else { 1 });
@@ -462,10 +472,10 @@ impl Apu {
             self.noise.quarter_frame(&self.regs.noise);
         }
         if do_hf {
-            self.pulse1.half_frame(&self.regs.pulse1);
-            self.pulse2.half_frame(&self.regs.pulse2);
-            self.triangle.half_frame(&self.regs.triangle);
-            self.noise.half_frame(&self.regs.noise);
+            self.pulse1.half_frame(&mut self.regs.pulse1);
+            self.pulse2.half_frame(&mut self.regs.pulse2);
+            self.triangle.half_frame(&mut self.regs.triangle);
+            self.noise.half_frame(&mut self.regs.noise);
         }
         if do_irq {
             self.intr.set(Intr::Irq);
