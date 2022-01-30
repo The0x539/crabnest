@@ -487,7 +487,7 @@ impl Apu {
         let pulse_inv_sum = inv_or_zero(pulse1 + pulse2);
         let pulse_out = 95.88 / (8128. * pulse_inv_sum + 100.);
 
-        self.samples.push(pulse_out + tnd_out)
+        self.samples.push(pulse_out + tnd_out);
     }
 
     pub fn new(
@@ -507,6 +507,8 @@ impl Apu {
                 },
             )
             .expect("Could not open audio queue");
+
+        queue.resume();
 
         let cpu = cpu.borrow();
 
