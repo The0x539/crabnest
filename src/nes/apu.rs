@@ -1,11 +1,18 @@
 #![allow(dead_code)]
 
+use std::{cell::Cell, rc::Rc};
+
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
 
-use crate::membus::{MemRead, MemWrite};
+use crate::{
+    membus::{MemRead, MemWrite},
+    mos6502::{self, Intr},
+    timekeeper::Timed,
+    R,
+};
 
-const CLK_DIVISOR: u64 = 24;
+const QUARTER_FRAME: u64 = 358000 / 4;
 
 const LENGTH_COUNTERS: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
@@ -180,7 +187,7 @@ struct Envelope {
 }
 
 impl Envelope {
-    fn frame(&mut self, loop_flag: bool, period: u8) {
+    fn quarter_frame(&mut self, loop_flag: bool, period: u8) {
         if self.start_flag {
             self.start_flag = false;
             self.divider = period;
@@ -212,7 +219,8 @@ impl Envelope {
 trait Channel {
     type Control;
     fn set_lc(&mut self, val: u8);
-    fn frame(&mut self, control: &Self::Control);
+    fn quarter_frame(&mut self, control: &Self::Control);
+    fn half_frame(&mut self, control: &Self::Control);
     fn tick(&mut self, control: &Self::Control);
     fn sample(&self, control: &Self::Control) -> u8;
 }
@@ -250,12 +258,16 @@ impl Channel for Pulse {
         self.envelope.start_flag = true;
     }
 
-    fn frame(&mut self, control: &Self::Control) {
+    fn quarter_frame(&mut self, control: &Self::Control) {
+        self.envelope
+            .quarter_frame(control.duty.lch(), control.duty.volume());
+    }
+
+    fn half_frame(&mut self, control: &Self::Control) {
         if !control.duty.lch() {
             self.length_counter = self.length_counter.saturating_sub(1);
         }
-        self.envelope
-            .frame(control.duty.lch(), control.duty.volume());
+        // TODO: update sweep period
     }
 
     fn tick(&mut self, control: &Self::Control) {
@@ -309,7 +321,7 @@ impl Channel for Triangle {
         self.linear_counter_reload = true;
     }
 
-    fn frame(&mut self, control: &Self::Control) {
+    fn quarter_frame(&mut self, control: &Self::Control) {
         if self.linear_counter_reload {
             self.linear_counter = control.counter.reload();
         } else {
@@ -318,6 +330,11 @@ impl Channel for Triangle {
 
         if !control.counter.control() {
             self.linear_counter_reload = false;
+        }
+    }
+
+    fn half_frame(&mut self, control: &Self::Control) {
+        if !control.counter.control() {
             self.length_counter = self.length_counter.saturating_sub(1);
         }
     }
@@ -364,9 +381,11 @@ impl Channel for Noise {
         self.envelope.start_flag = true;
     }
 
-    fn frame(&mut self, control: &Self::Control) {
-        self.envelope.frame(control.lch(), control.volume());
+    fn quarter_frame(&mut self, control: &Self::Control) {
+        self.envelope.quarter_frame(control.lch(), control.volume());
     }
+
+    fn half_frame(&mut self, _control: &Self::Control) {}
 
     fn tick(&mut self, control: &Self::Control) {
         let feedback = self.sr_bit(0) ^ self.sr_bit(if control.mode() { 6 } else { 1 });
@@ -382,12 +401,76 @@ impl Channel for Noise {
     }
 }
 
+fn inv_or_zero(n: f32) -> f32 {
+    if n == 0.0 {
+        0.0
+    } else {
+        1.0 / n
+    }
+}
+
 struct Apu {
     regs: ApuRegs,
+
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
+
+    frame_step: u8,
+    intr: Rc<Cell<Intr>>,
+
+    samples: Vec<f32>,
+}
+
+impl Apu {
+    fn do_frame_tick(&mut self) {
+        let n = self.frame_step;
+        let (do_qf, do_hf, do_irq);
+
+        if self.regs.frame_counter.sequence() {
+            do_qf = true;
+            do_hf = n == 1 || n == 3;
+            do_irq = n == 3 && !self.regs.frame_counter.disable_int();
+            self.frame_step = (n + 1) % 4;
+        } else {
+            do_qf = n != 3;
+            do_hf = n == 1 || n == 4;
+            do_irq = false;
+            self.frame_step = (n + 1) % 5;
+        }
+
+        if do_qf {
+            self.pulse1.quarter_frame(&self.regs.pulse1);
+            self.pulse2.quarter_frame(&self.regs.pulse2);
+            self.triangle.quarter_frame(&self.regs.triangle);
+            self.noise.quarter_frame(&self.regs.noise);
+        }
+        if do_hf {
+            self.pulse1.half_frame(&self.regs.pulse1);
+            self.pulse2.half_frame(&self.regs.pulse2);
+            self.triangle.half_frame(&self.regs.triangle);
+            self.noise.half_frame(&self.regs.noise);
+        }
+        if do_irq {
+            self.intr.set(Intr::Irq);
+        }
+    }
+
+    fn mix_sample(&mut self) {
+        let triangle = self.triangle.sample(&self.regs.triangle) as f32;
+        let noise = self.noise.sample(&self.regs.noise) as f32;
+        let dmc = 0_f32;
+        let pulse1 = self.pulse1.sample(&self.regs.pulse1) as f32;
+        let pulse2 = self.pulse2.sample(&self.regs.pulse2) as f32;
+
+        let tnd_inv_sum = inv_or_zero(triangle / 8227. + noise / 12241. + dmc / 22638.);
+        let tnd_out = 159.79 / (tnd_inv_sum + 100.);
+        let pulse_inv_sum = inv_or_zero(pulse1 + pulse2);
+        let pulse_out = 95.88 / (8128. * pulse_inv_sum + 100.);
+
+        self.samples.push(pulse_out + tnd_out)
+    }
 }
 
 impl MemRead for Apu {
@@ -430,5 +513,75 @@ impl MemWrite for Apu {
             0x0F => self.noise.set_lc(length_counter),
             _ => (),
         }
+    }
+}
+
+struct ApuCycleTimer {
+    apu: R<Apu>,
+    even_cycle: bool,
+    countdown: u64,
+}
+
+impl Timed for ApuCycleTimer {
+    fn fire(&mut self) {
+        self.countdown = mos6502::CLK_DIVISOR;
+
+        let Apu {
+            ref regs,
+            ref mut pulse1,
+            ref mut pulse2,
+            ref mut triangle,
+            ref mut noise,
+            ..
+        } = &mut *self.apu.borrow_mut();
+
+        triangle.tick(&regs.triangle);
+        if self.even_cycle {
+            pulse1.tick(&regs.pulse1);
+            pulse2.tick(&regs.pulse2);
+            noise.tick(&regs.noise);
+        }
+
+        self.even_cycle = !self.even_cycle;
+    }
+
+    fn countdown(&self) -> &u64 {
+        &self.countdown
+    }
+
+    fn countdown_mut(&mut self) -> &mut u64 {
+        &mut self.countdown
+    }
+}
+
+struct ApuFrameTimer {
+    apu: R<Apu>,
+    countdown: u64,
+}
+
+impl Timed for ApuFrameTimer {
+    fn fire(&mut self) {
+        self.countdown = QUARTER_FRAME;
+        self.apu.borrow_mut().do_frame_tick();
+    }
+
+    fn countdown(&self) -> &u64 {
+        &self.countdown
+    }
+
+    fn countdown_mut(&mut self) -> &mut u64 {
+        &mut self.countdown
+    }
+}
+
+struct ApuSampleTimer {
+    apu: R<Apu>,
+    countdown: u64,
+}
+
+impl Timed for ApuSampleTimer {
+    fn fire(&mut self) {
+        self.countdown = 487;
+        self.apu.borrow_mut().mix_sample();
     }
 }
