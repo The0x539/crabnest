@@ -96,7 +96,7 @@ struct TriangleControl {
     timer: Timer,
 }
 
-#[bitfield(bits = 24)]
+#[bitfield(bits = 32)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct NoiseControl {
@@ -105,6 +105,9 @@ struct NoiseControl {
     lch: bool,
     constant: bool,
     volume: B4,
+
+    #[skip]
+    __: B8,
 
     mode: bool,
     #[skip]
@@ -185,6 +188,8 @@ struct ApuRegs {
     _padding2: u8,
     frame_counter: FrameCounter,
 }
+
+static_assertions::assert_eq_size!(ApuRegs, [u8; 0x18]);
 
 #[derive(Default)]
 struct Envelope {
