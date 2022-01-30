@@ -4,10 +4,16 @@ use std::{cell::Cell, rc::Rc};
 
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
+use sdl2::{
+    audio::{AudioQueue, AudioSpecDesired},
+    Sdl,
+};
 
 use crate::{
     membus::{MemRead, MemWrite},
-    mos6502::{self, Intr},
+    mos6502::{self, Intr, Mos6502},
+    r,
+    reset_manager::ResetManager,
     timekeeper::Timed,
     R,
 };
@@ -180,6 +186,7 @@ struct ApuRegs {
     frame_counter: FrameCounter,
 }
 
+#[derive(Default)]
 struct Envelope {
     start_flag: bool,
     divider: u8,
@@ -225,6 +232,7 @@ trait Channel {
     fn sample(&self, control: &Self::Control) -> u8;
 }
 
+#[derive(Default)]
 struct Pulse {
     sequence: [u8; 8],
     sequence_pos: usize,
@@ -304,7 +312,7 @@ impl Channel for Pulse {
     }
 }
 
-// this needs to tick at the rate of the CPU clock
+#[derive(Default)]
 struct Triangle {
     sequence_pos: u8,
     timer: u16,
@@ -361,6 +369,7 @@ impl Channel for Triangle {
     }
 }
 
+#[derive(Default)]
 struct Noise {
     envelope: Envelope,
     length_counter: u8,
@@ -421,6 +430,7 @@ struct Apu {
     intr: Rc<Cell<Intr>>,
 
     samples: Vec<f32>,
+    queue: AudioQueue<f32>,
 }
 
 impl Apu {
@@ -455,6 +465,9 @@ impl Apu {
         if do_irq {
             self.intr.set(Intr::Irq);
         }
+
+        self.queue.queue(&self.samples);
+        self.samples.clear();
     }
 
     fn mix_sample(&mut self) {
@@ -470,6 +483,63 @@ impl Apu {
         let pulse_out = 95.88 / (8128. * pulse_inv_sum + 100.);
 
         self.samples.push(pulse_out + tnd_out)
+    }
+
+    pub fn new(
+        sdl: &Sdl,
+        // TODO: actually use this (the thing I've done with timers might make it tricky)
+        _rm: &R<ResetManager>,
+        cpu: &R<Mos6502>,
+    ) -> R<Self> {
+        let audio = sdl.audio().expect("Could not init SDL audio");
+        let queue = audio
+            .open_queue(
+                None,
+                &AudioSpecDesired {
+                    freq: Some(44100),
+                    channels: Some(1),
+                    samples: None,
+                },
+            )
+            .expect("Could not open audio queue");
+
+        let cpu = cpu.borrow();
+
+        let mut apu = Apu {
+            regs: Zeroable::zeroed(),
+
+            pulse1: Default::default(),
+            pulse2: Default::default(),
+            triangle: Default::default(),
+            noise: Default::default(),
+
+            frame_step: 0,
+            intr: cpu.intr_status.clone(),
+
+            samples: Vec::with_capacity(65536),
+            queue,
+        };
+
+        apu.pulse2.is_pulse2 = true;
+
+        let apu = r(apu);
+
+        let mut tk = cpu.tk.borrow_mut();
+        tk.add_timer(r(ApuCycleTimer {
+            apu: apu.clone(),
+            even_cycle: false,
+            countdown: mos6502::CLK_DIVISOR,
+        }));
+        tk.add_timer(r(ApuFrameTimer {
+            apu: apu.clone(),
+            countdown: QUARTER_FRAME,
+        }));
+        tk.add_timer(r(ApuSampleTimer {
+            apu: apu.clone(),
+            countdown: 487,
+        }));
+
+        apu
     }
 }
 
@@ -583,5 +653,13 @@ impl Timed for ApuSampleTimer {
     fn fire(&mut self) {
         self.countdown = 487;
         self.apu.borrow_mut().mix_sample();
+    }
+
+    fn countdown(&self) -> &u64 {
+        &self.countdown
+    }
+
+    fn countdown_mut(&mut self) -> &mut u64 {
+        &mut self.countdown
     }
 }
