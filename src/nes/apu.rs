@@ -324,7 +324,7 @@ impl Channel for Triangle {
 
     fn tick(&mut self, control: &Self::Control) {
         if self.timer == 0 {
-            self.timer = control.timer.get();
+            self.timer = control.timer.get() + 1;
             self.sequence_pos = (self.sequence_pos + 1) % 32;
         } else {
             self.timer -= 1;
