@@ -1,10 +1,26 @@
 #![allow(dead_code)]
 
+use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
+
+use crate::membus::{MemRead, MemWrite};
 
 const CLK_DIVISOR: u64 = 24;
 
+const LENGTH_COUNTERS: [u8; 32] = [
+    10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
+    192, 24, 72, 26, 16, 28, 32, 30,
+];
+const PULSE_SEQUENCES: [[u8; 8]; 4] = [
+    [0, 0, 0, 0, 0, 0, 0, 1],
+    [0, 0, 0, 0, 0, 0, 1, 1],
+    [0, 0, 0, 0, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 0, 0],
+];
+
 #[bitfield(bits = 8)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 struct PulseDuty {
     duty: B2,
     lch: bool,
@@ -13,6 +29,8 @@ struct PulseDuty {
 }
 
 #[bitfield(bits = 8)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 struct Sweep {
     enabled: bool,
     period: B3,
@@ -21,6 +39,8 @@ struct Sweep {
 }
 
 #[bitfield(bits = 16)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 struct Timer {
     lo: B8,
     load: B5,
@@ -39,6 +59,7 @@ impl Timer {
     }
 }
 
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct PulseControl {
     duty: PulseDuty,
@@ -47,18 +68,24 @@ struct PulseControl {
 }
 
 #[bitfield(bits = 8)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 struct TriangleCounter {
     control: bool,
     reload: B7,
 }
 
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct TriangleControl {
     counter: TriangleCounter,
+    _padding: u8,
     timer: Timer,
 }
 
 #[bitfield(bits = 24)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 struct NoiseControl {
     #[skip]
     __: B2,
@@ -77,6 +104,8 @@ struct NoiseControl {
 }
 
 #[bitfield(bits = 32)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 struct DmcControl {
     irq: bool,
     repeat: bool,
@@ -93,6 +122,8 @@ struct DmcControl {
 }
 
 #[bitfield(bits = 8)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 struct ApuControl {
     #[skip]
     __: B3,
@@ -104,6 +135,8 @@ struct ApuControl {
 }
 
 #[bitfield(bits = 8)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 struct ApuStatus {
     dmc_int: bool,
     frame_int: bool,
@@ -117,11 +150,27 @@ struct ApuStatus {
 }
 
 #[bitfield(bits = 8)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 struct FrameCounter {
     sequence: bool,
     disable_int: bool,
     #[skip]
     __: B6,
+}
+
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
+struct ApuRegs {
+    pulse1: PulseControl,
+    pulse2: PulseControl,
+    triangle: TriangleControl,
+    noise: NoiseControl,
+    dmc: DmcControl,
+    _padding1: u8,
+    control: ApuControl,
+    _padding2: u8,
+    frame_counter: FrameCounter,
 }
 
 struct Envelope {
@@ -218,13 +267,7 @@ impl Channel for Pulse {
             self.sequence_pos = self.sequence_pos.checked_sub(1).unwrap_or(7);
         }
 
-        self.sequence = match control.duty.duty() {
-            0 => [0, 0, 0, 0, 0, 0, 0, 1],
-            1 => [0, 0, 0, 0, 0, 0, 1, 1],
-            2 => [0, 0, 0, 0, 1, 1, 1, 1],
-            3 => [1, 1, 1, 1, 1, 1, 0, 0],
-            _ => unreachable!(),
-        };
+        self.sequence = PULSE_SEQUENCES[control.duty.duty() as usize];
     }
 
     fn sample(&self, control: &Self::Control) -> u8 {
@@ -336,5 +379,56 @@ impl Channel for Noise {
         }
         self.envelope
             .output(self.sr_bit(0) != 0, control.lch(), control.volume())
+    }
+}
+
+struct Apu {
+    regs: ApuRegs,
+    pulse1: Pulse,
+    pulse2: Pulse,
+    triangle: Triangle,
+    noise: Noise,
+}
+
+impl MemRead for Apu {
+    fn read(&mut self, addr: u16, lane_mask: &mut u8) -> u8 {
+        if addr == 0x15 {
+            *lane_mask = 0xFF;
+            let mut status = ApuStatus::new();
+            // TODO: implement DMC and set this up accordingly
+            status.set_dmc_int(false);
+            // What is "the frame interrupt flag" and where do I clear it?
+            status.set_frame_int(false);
+
+            status.set_dmc_active(false);
+
+            status.set_noise_lc_st(self.noise.length_counter > 0);
+            status.set_tri_lc_st(self.triangle.length_counter > 0);
+            status.set_p2_lc_st(self.pulse2.length_counter > 0);
+            status.set_p1_lc_st(self.pulse1.length_counter > 0);
+
+            status.bytes[0]
+        } else {
+            *lane_mask = 0;
+            0
+        }
+    }
+}
+
+impl MemWrite for Apu {
+    fn write(&mut self, addr: u16, data: u8) {
+        if (0x00..=0x17).contains(&addr) {
+            bytemuck::bytes_of_mut(&mut self.regs)[addr as usize] = data;
+        } else {
+            return;
+        }
+        let length_counter = LENGTH_COUNTERS[data as usize >> 3];
+        match addr {
+            0x03 => self.pulse1.set_lc(length_counter),
+            0x07 => self.pulse2.set_lc(length_counter),
+            0x0B => self.triangle.set_lc(length_counter),
+            0x0F => self.noise.set_lc(length_counter),
+            _ => (),
+        }
     }
 }
