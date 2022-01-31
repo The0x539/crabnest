@@ -52,8 +52,9 @@ impl Timekeeper {
             .timers
             .iter()
             .map(|t| *t.borrow().countdown())
+            .chain(std::iter::once(ncycles))
             .min()
-            .unwrap_or(ncycles);
+            .unwrap();
 
         self.clk_cyclenum += mincount;
 
