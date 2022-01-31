@@ -255,15 +255,11 @@ struct Pulse {
 impl Pulse {
     fn target_period(&self, control: &PulseControl) -> u16 {
         let raw_period = control.timer.get();
-        if control.sweep.enabled() {
-            let change_amount = raw_period >> control.sweep.shift_count();
-            match (control.sweep.negative(), self.is_pulse2) {
-                (true, true) => raw_period - change_amount - 1,
-                (true, false) => raw_period - change_amount,
-                (false, _) => raw_period + change_amount,
-            }
-        } else {
-            raw_period
+        let change_amount = raw_period >> control.sweep.shift_count();
+        match (control.sweep.negative(), self.is_pulse2) {
+            (true, true) => raw_period - change_amount - 1,
+            (true, false) => raw_period - change_amount,
+            (false, _) => raw_period + change_amount,
         }
     }
 
@@ -717,7 +713,9 @@ impl MemWrite for Apu {
         }
         let length_counter = LENGTH_COUNTERS[data as usize >> 3];
         match addr {
+            0x01 => self.pulse1.reload_sweep = true,
             0x03 => self.pulse1.set_lc(length_counter),
+            0x05 => self.pulse2.reload_sweep = true,
             0x07 => self.pulse2.set_lc(length_counter),
             0x0B => self.triangle.set_lc(length_counter),
             0x0F => self.noise.set_lc(length_counter),
