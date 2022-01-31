@@ -3,14 +3,6 @@ use std::time::{Duration, Instant};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::{r, R};
 
-fn mul_duration(d: Duration, n: u64) -> Duration {
-    let mut nanos = d.subsec_nanos() as u64 * n;
-    let mut secs = d.as_secs();
-    secs += nanos / 1_000_000_000;
-    nanos %= 1_000_000_000;
-    Duration::new(secs, nanos as u32)
-}
-
 pub trait Timed: 'static {
     fn fire(&mut self);
     fn countdown(&self) -> &u64;
