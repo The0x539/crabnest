@@ -23,19 +23,19 @@ pub struct Timekeeper {
     t_ref: Instant,
     t_pause: Instant,
 
-    clk_period: Duration,
+    clk_rate: f64,
     pub clk_cyclenum: u64,
 }
 
 impl Timekeeper {
-    pub fn new(rm: &R<ResetManager>, clk_period: Duration) -> R<Self> {
+    pub fn new(rm: &R<ResetManager>, clk_rate: f64) -> R<Self> {
         let tk = r(Self {
             timers: vec![],
 
             t_ref: Instant::now(),
             t_pause: Instant::now(),
 
-            clk_period,
+            clk_rate,
             clk_cyclenum: 0,
         });
 
@@ -72,10 +72,11 @@ impl Timekeeper {
     }
 
     pub fn sync(&mut self) {
-        let t_target = self.t_ref + mul_duration(self.clk_period, self.clk_cyclenum);
-        let t_now = Instant::now();
-        if t_now < t_target {
-            std::thread::sleep(t_target - t_now);
+        let expected_cycles = self.clk_rate * self.t_ref.elapsed().as_secs_f64();
+        let excess_cycles = self.clk_cyclenum as f64 - expected_cycles;
+        if excess_cycles > 0.0 {
+            let excess_time = excess_cycles / self.clk_rate;
+            std::thread::sleep(Duration::from_secs_f64(excess_time));
         }
     }
 
