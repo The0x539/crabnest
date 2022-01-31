@@ -366,21 +366,19 @@ impl Channel for Triangle {
     fn tick(&mut self, control: &Self::Control) {
         if self.timer == 0 {
             self.timer = control.timer.get() + 1;
-            self.sequence_pos = (self.sequence_pos + 1) % 32;
+            if self.linear_counter != 0 && self.length_counter != 0 {
+                self.sequence_pos = (self.sequence_pos + 1) % 32;
+            }
         } else {
             self.timer -= 1;
         }
     }
 
     fn sample(&self, _control: &Self::Control) -> u8 {
-        if self.length_counter == 0 || self.linear_counter == 0 {
-            0
-        } else {
-            match self.sequence_pos {
-                n @ 0..=15 => 15 - n,
-                n @ 16..=31 => n - 16,
-                32.. => unreachable!(),
-            }
+        match self.sequence_pos {
+            n @ 0..=15 => 15 - n,
+            n @ 16..=31 => n - 16,
+            32.. => unreachable!(),
         }
     }
 }
