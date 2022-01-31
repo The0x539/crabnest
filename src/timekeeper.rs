@@ -3,6 +3,14 @@ use std::time::{Duration, Instant};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::{r, R};
 
+fn mul_duration(d: Duration, n: u64) -> Duration {
+    let mut nanos = d.subsec_nanos() as u64 * n;
+    let mut secs = d.as_secs();
+    secs += nanos / 1_000_000_000;
+    nanos %= 1_000_000_000;
+    Duration::new(secs, nanos as u32)
+}
+
 pub trait Timed: 'static {
     fn fire(&mut self);
     fn countdown(&self) -> &u64;
@@ -63,9 +71,7 @@ impl Timekeeper {
     }
 
     pub fn sync(&mut self) {
-        let cyclenum = u32::try_from(self.clk_cyclenum).expect("too many cycles");
-
-        let t_target = self.t_ref + self.clk_period * cyclenum;
+        let t_target = self.t_ref + mul_duration(self.clk_period, self.clk_cyclenum);
         let t_now = Instant::now();
         if t_now < t_target {
             std::thread::sleep(t_target - t_now);
