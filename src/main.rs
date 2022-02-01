@@ -47,6 +47,8 @@ fn hawknest_rom_load(
     rm: &R<ResetManager>,
     cpu: &R<Mos6502>,
 ) -> io::Result<()> {
+    cpu.borrow_mut().paravirt = true;
+
     let cpu = cpu.borrow();
     let bus = &*cpu.bus.borrow();
 

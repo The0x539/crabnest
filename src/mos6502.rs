@@ -54,6 +54,8 @@ pub struct Mos6502 {
 
     pub intr_status: Rc<Cell<Intr>>,
 
+    pub paravirt: bool,
+
     #[cfg(feature = "cyclecheck")]
     last_branch_delay: u64,
     #[cfg(feature = "cyclecheck")]
@@ -72,6 +74,7 @@ impl Mos6502 {
         let cpu = Self {
             bus,
             tk,
+            paravirt: false,
             paravirt_args: paravirt_args.iter().map(|&s| s.to_owned()).collect(),
             pc: 0,
             sp: 0,
