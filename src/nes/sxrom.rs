@@ -66,7 +66,6 @@ impl SxRom {
 
         match r0.chr_switching() {
             ChrSwitching::EightK => {
-                println!("8k");
                 pmap(
                     0x0000,
                     0x2000,
@@ -74,7 +73,6 @@ impl SxRom {
                 );
             }
             ChrSwitching::FourK => {
-                println!("4k");
                 pmap(
                     0x0000,
                     0x1000,
