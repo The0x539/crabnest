@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    mmc1::{Mmc1, PrgromFixation, PrgromSwitching},
+    mmc1::{ChrSwitching, Mmc1, PrgromFixation, PrgromSwitching},
     ppu::Ppu,
 };
 
@@ -46,15 +46,50 @@ impl SxRom {
                 map(0x8000, 0x8000, (0x4000 * (banksel & !1)) % prgrom_size);
             }
 
-            (PrgromSwitching::SixteenK, PrgromFixation::High) => {
+            (PrgromSwitching::SixteenK, PrgromFixation::Low) => {
                 map(0x8000, 0x4000, 0x0000);
                 map(0xC000, 0x4000, (banksel * 0x4000) % prgrom_size);
             }
 
-            (PrgromSwitching::SixteenK, PrgromFixation::Low) => {
+            (PrgromSwitching::SixteenK, PrgromFixation::High) => {
                 map(0x8000, 0x4000, (banksel * 0x4000) % prgrom_size);
                 map(0xC000, 0x4000, prgrom_size - 0x4000);
             }
+        }
+
+        let ppu = self.ppu.borrow();
+        let pbus = &ppu.bus.borrow();
+
+        let chrom_size = self.chrom.borrow().size() as usize;
+
+        let pmap = |bus_start, size, start| Memory::map(&self.chrom, pbus, bus_start, size, start);
+
+        match r0.chr_switching() {
+            ChrSwitching::EightK => {
+                println!("8k");
+                pmap(
+                    0x0000,
+                    0x2000,
+                    (self.mmc1.reg.1.banksel8k() as usize * 0x2000) % chrom_size,
+                );
+            }
+            ChrSwitching::FourK => {
+                println!("4k");
+                pmap(
+                    0x0000,
+                    0x1000,
+                    (self.mmc1.reg.1.banksel4k() as usize * 0x1000) % chrom_size,
+                );
+                pmap(
+                    0x1000,
+                    0x1000,
+                    (self.mmc1.reg.2.banksel4k() as usize * 0x1000) % chrom_size,
+                );
+            }
+        }
+
+        if let Some(wram) = &self.wram {
+            Memory::map(wram, bus, 0x6000, 0x2000, 0x0000);
         }
     }
 }

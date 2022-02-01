@@ -129,6 +129,7 @@ impl Mmc1 {
 
         if val & 0x80 != 0 {
             self.reset_shiftreg();
+            return;
         }
 
         self.shiftreg >>= 1;
