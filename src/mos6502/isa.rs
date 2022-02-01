@@ -240,7 +240,7 @@ impl Mos6502 {
             }
             AddrMode::IndIdx => {
                 let ind = self.read8pc() as u16;
-                let base = self.read16(ind);
+                let base = self.buggy_read16(ind);
                 let offset = self.y as u16;
                 addr = base + offset;
                 if addr & 0xFF00 != base & 0xFF00 {
