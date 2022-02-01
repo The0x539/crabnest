@@ -38,41 +38,28 @@ const DMC_RATES: [u16; 16] = [
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct PulseDuty {
-    duty: B2,
-    lch: bool,
-    constant: bool,
     volume: B4,
+    constant: bool,
+    lch: bool,
+    duty: B2,
 }
 
 #[bitfield(bits = 8)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Sweep {
-    enabled: bool,
-    period: B3,
-    negative: bool,
     shift_count: B3,
+    negative: bool,
+    period: B3,
+    enabled: bool,
 }
 
 #[bitfield(bits = 16)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Timer {
-    lo: B8,
+    timer: B11,
     load: B5,
-    hi: B3,
-}
-
-impl Timer {
-    fn set(&mut self, val: u16) {
-        assert!(val <= 0b0000_0111_1111_1111);
-        self.set_lo(val as u8);
-        self.set_hi((val >> 8) as u8);
-    }
-
-    fn get(&self) -> u16 {
-        self.lo() as u16 | ((self.hi() as u16) << 8)
-    }
 }
 
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
@@ -87,8 +74,8 @@ struct PulseControl {
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct TriangleCounter {
-    control: bool,
     reload: B7,
+    control: bool,
 }
 
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
@@ -103,38 +90,38 @@ struct TriangleControl {
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct NoiseControl {
+    volume: B4,
+    constant: bool,
+    lch: bool,
     #[skip]
     __: B2,
-    lch: bool,
-    constant: bool,
-    volume: B4,
 
     #[skip]
     __: B8,
 
-    mode: bool,
-    #[skip]
-    __: B3,
     period: B4,
-
-    load: B5,
     #[skip]
     __: B3,
+    mode: bool,
+
+    #[skip]
+    __: B3,
+    load: B5,
 }
 
 #[bitfield(bits = 32)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct DmcControl {
-    irq: bool,
-    repeat: bool,
+    freq_idx: B4,
     #[skip]
     __: B2,
-    freq_idx: B4,
+    repeat: bool,
+    irq: bool,
 
+    direct_load: B7,
     #[skip]
     __: B1,
-    direct_load: B7,
 
     s_addr: u8,
     s_len: u8,
@@ -144,28 +131,28 @@ struct DmcControl {
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct ApuControl {
+    p1_lc_en: bool,
+    p2_lc_en: bool,
+    tri_lc_en: bool,
+    noise_lc_en: bool,
+    dmc_lc_en: bool,
     #[skip]
     __: B3,
-    dmc_lc_en: bool,
-    noise_lc_en: bool,
-    tri_lc_en: bool,
-    p2_lc_en: bool,
-    p1_lc_en: bool,
 }
 
 #[bitfield(bits = 8)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct ApuStatus {
-    dmc_int: bool,
-    frame_int: bool,
+    p1_lc_st: bool,
+    p2_lc_st: bool,
+    tri_lc_st: bool,
+    noise_lc_st: bool,
+    dmc_active: bool,
     #[skip]
     __: B1,
-    dmc_active: bool,
-    noise_lc_st: bool,
-    tri_lc_st: bool,
-    p2_lc_st: bool,
-    p1_lc_st: bool,
+    frame_int: bool,
+    dmc_int: bool,
 }
 
 #[bitfield(bits = 8)]
@@ -219,6 +206,8 @@ impl Envelope {
             } else {
                 self.decay -= 1;
             }
+        } else {
+            self.divider -= 1;
         }
     }
 
@@ -254,7 +243,7 @@ struct Pulse {
 
 impl Pulse {
     fn target_period(&self, control: &PulseControl) -> u16 {
-        let raw_period = control.timer.get();
+        let raw_period = control.timer.timer();
         let change_amount = raw_period >> control.sweep.shift_count();
         match (control.sweep.negative(), self.is_pulse2) {
             (true, true) => raw_period - change_amount - 1,
@@ -266,7 +255,7 @@ impl Pulse {
     fn update_period(&mut self, control: &mut PulseControl) {
         let period = self.target_period(control);
         if control.sweep.enabled() && self.sweep_counter == 0 && period <= 0x07FF {
-            control.timer.set(period);
+            control.timer.set_timer(period);
         }
         if self.sweep_counter == 0 || self.reload_sweep {
             self.reload_sweep = false;
@@ -299,7 +288,7 @@ impl Channel for Pulse {
     }
 
     fn tick(&mut self, control: &Self::Control) {
-        let period = control.timer.get();
+        let period = control.timer.timer();
 
         if self.timer == 0 {
             self.timer = period;
@@ -316,7 +305,7 @@ impl Channel for Pulse {
             return 0;
         }
 
-        if control.timer.get() < 8 || self.target_period(control) > 0x07FF {
+        if control.timer.timer() < 8 || self.target_period(control) > 0x07FF {
             return 0;
         }
 
@@ -365,7 +354,7 @@ impl Channel for Triangle {
 
     fn tick(&mut self, control: &Self::Control) {
         if self.timer == 0 {
-            self.timer = control.timer.get() + 1;
+            self.timer = control.timer.timer() + 1;
             if self.linear_counter != 0 && self.length_counter != 0 {
                 self.sequence_pos = (self.sequence_pos + 1) % 32;
             }
@@ -524,7 +513,7 @@ impl Channel for Dmc {
     }
 }
 
-fn inv_or_zero(n: f32) -> f32 {
+fn inv_or_zero(n: f64) -> f64 {
     if n == 0.0 {
         0.0
     } else {
@@ -588,18 +577,32 @@ impl Apu {
     }
 
     fn mix_sample(&mut self) {
-        let triangle = self.triangle.sample(&self.regs.triangle) as f32;
-        let noise = self.noise.sample(&self.regs.noise) as f32;
-        let dmc = self.dmc.sample(&self.regs.dmc) as f32;
-        let pulse1 = self.pulse1.sample(&self.regs.pulse1) as f32;
-        let pulse2 = self.pulse2.sample(&self.regs.pulse2) as f32;
+        let triangle = self.triangle.sample(&self.regs.triangle) as f64;
+        let noise = self.noise.sample(&self.regs.noise) as f64;
+        let dmc = self.dmc.sample(&self.regs.dmc) as f64;
+        let pulse1 = self.pulse1.sample(&self.regs.pulse1) as f64 / 8.;
+        let pulse2 = self.pulse2.sample(&self.regs.pulse2) as f64 / 8.;
 
-        let tnd_inv_sum = inv_or_zero(triangle / 8227. + noise / 12241. + dmc / 22638.);
-        let tnd_out = 159.79 / (tnd_inv_sum + 100.);
-        let pulse_inv_sum = inv_or_zero(pulse1 + pulse2);
-        let pulse_out = 95.88 / (8128. * pulse_inv_sum + 100.);
+        assert!(0. <= triangle && triangle <= 15.);
+        assert!(0. <= noise && noise <= 15.);
+        assert!(0. <= pulse1 && pulse1 <= 15.);
+        assert!(0. <= pulse2 && pulse2 <= 15.);
+        assert!(0. <= dmc && dmc <= 127.);
 
-        self.samples.push(pulse_out + tnd_out);
+        let tnd_out = if triangle + noise + dmc != 0.0 {
+            159.79 / (1. / (triangle / 8227. + noise / 12241. + dmc / 22638.) + 100.)
+        } else {
+            0.0
+        };
+        let pulse_out = if pulse1 + pulse2 != 0.0 {
+            95.88 / (8128. / (pulse1 + pulse2) + 100.)
+        } else {
+            0.0
+        };
+
+        let output = pulse_out + tnd_out;
+
+        self.samples.push(output as f32);
     }
 
     pub fn new(
@@ -712,7 +715,9 @@ impl MemWrite for Apu {
         let length_counter = LENGTH_COUNTERS[data as usize >> 3];
         match addr {
             0x01 => self.pulse1.reload_sweep = true,
-            0x03 => self.pulse1.set_lc(length_counter),
+            0x03 => {
+                self.pulse1.set_lc(length_counter);
+            }
             0x05 => self.pulse2.reload_sweep = true,
             0x07 => self.pulse2.set_lc(length_counter),
             0x0B => self.triangle.set_lc(length_counter),
@@ -753,6 +758,22 @@ impl Timed for ApuCycleTimer {
             ref mut dmc,
             ..
         } = &mut *self.apu.borrow_mut();
+
+        if !regs.control.p1_lc_en() {
+            pulse1.length_counter = 0;
+        }
+        if !regs.control.p2_lc_en() {
+            pulse2.length_counter = 0;
+        }
+        if !regs.control.tri_lc_en() {
+            triangle.length_counter = 0;
+        }
+        if !regs.control.noise_lc_en() {
+            noise.length_counter = 0;
+        }
+        if !regs.control.dmc_lc_en() {
+            // ???
+        }
 
         triangle.tick(&regs.triangle);
         if self.even_cycle {
