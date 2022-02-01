@@ -105,7 +105,7 @@ impl Mmc1 {
         self.shiftreg = 0x20;
     }
 
-    pub fn map_vram(&self, bus: &mut MemBus, vram: &R<Memory>) {
+    pub fn map_vram(&self, bus: &MemBus, vram: &R<Memory>) {
         let (a, b, c, d) = [
             (0x0000, 0x0000, 0x0000, 0x0000), // OneScreenNt0
             (0x0400, 0x0400, 0x0400, 0x0400), // OneScreenNt1

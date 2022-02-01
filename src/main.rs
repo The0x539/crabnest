@@ -47,8 +47,8 @@ fn hawknest_rom_load(
     rm: &R<ResetManager>,
     cpu: &R<Mos6502>,
 ) -> io::Result<()> {
-    let cpu = cpu.borrow_mut();
-    let bus = &mut *cpu.bus.borrow_mut();
+    let cpu = cpu.borrow();
+    let bus = &*cpu.bus.borrow();
 
     let cartrom = Memory::new(rm, 0x6000, false);
     f.read_exact(&mut cartrom.borrow_mut().bytes)?;

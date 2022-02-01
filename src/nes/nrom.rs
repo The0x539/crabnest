@@ -30,7 +30,7 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
     }
 
     let cpu = info.cpu.borrow();
-    let c_bus = &mut *cpu.bus.borrow_mut();
+    let c_bus = &*cpu.bus.borrow();
 
     if let Some(wram) = &info.wram {
         let size = wram.borrow().size();
@@ -44,7 +44,7 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
     }
 
     let ppu = info.ppu.borrow();
-    let p_bus = &mut *ppu.bus.borrow_mut();
+    let p_bus = &*ppu.bus.borrow();
 
     // guaranteed
     if let Some(chrom) = &info.chrom {

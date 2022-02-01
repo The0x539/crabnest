@@ -23,7 +23,7 @@ impl Memory {
         mem
     }
 
-    pub fn map(this: &R<Self>, bus: &mut MemBus, bus_start: u16, size: u16, start: usize) {
+    pub fn map(this: &R<Self>, bus: &MemBus, bus_start: u16, size: u16, start: usize) {
         assert!(bus_start as usize % membus::PAGESIZE == 0);
         assert!(size as usize % membus::PAGESIZE == 0);
         assert!(start + size as usize <= this.borrow().bytes.len());
@@ -42,7 +42,7 @@ impl Memory {
 
     pub fn map_mirroring(
         this: &R<Self>,
-        bus: &mut MemBus,
+        bus: &MemBus,
         bus_start: u16,
         size: u16,
         start: usize,

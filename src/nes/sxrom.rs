@@ -1,10 +1,10 @@
 use crate::{
     ines::RomInfo,
-    membus::MemWrite,
+    membus::{MemBus, MemWrite},
     memory::Memory,
-    mos6502::{self, Mos6502},
-    r,
+    mos6502, r,
     reset_manager::Reset,
+    timekeeper::Timekeeper,
     R,
 };
 
@@ -16,7 +16,8 @@ use super::{
 struct SxRom {
     mmc1: Mmc1,
 
-    cpu: R<Mos6502>,
+    bus: R<MemBus>,
+    tk: R<Timekeeper>,
     ppu: R<Ppu>,
 
     prgrom: R<Memory>,
@@ -29,17 +30,15 @@ struct SxRom {
 
 impl SxRom {
     fn remap(&mut self) {
-        let cpu = self.cpu.borrow();
-        let bus = &mut cpu.bus.borrow_mut();
+        let bus = &self.bus.borrow();
 
         let prgrom_size = self.prgrom.borrow().size();
         let banksel = self.mmc1.reg.3.banksel() as usize;
 
         self.mmc1
-            .map_vram(&mut *self.ppu.borrow().bus.borrow_mut(), &self.vram);
+            .map_vram(&*self.ppu.borrow().bus.borrow(), &self.vram);
 
-        let mut map =
-            |bus_start, size, start| Memory::map(&self.prgrom, bus, bus_start, size, start);
+        let map = |bus_start, size, start| Memory::map(&self.prgrom, bus, bus_start, size, start);
 
         let r0 = &self.mmc1.reg.0;
         match (r0.prgrom_switching(), r0.prgrom_fixation()) {
@@ -93,7 +92,8 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
 
     let cart = r(SxRom {
         mmc1: Mmc1::default(),
-        cpu: info.cpu.clone(),
+        bus: info.cpu.borrow().bus.clone(),
+        tk: info.cpu.borrow().tk.clone(),
         ppu: info.ppu.clone(),
         prgrom: info.prgrom.clone().unwrap(),
         chrom: info.chrom.clone().unwrap(),
@@ -107,7 +107,7 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
         info.cpu
             .borrow()
             .bus
-            .borrow_mut()
+            .borrow()
             .set_write_handler(0x80 + i, &cart, i << 8);
     }
 
@@ -119,7 +119,7 @@ impl MemWrite for SxRom {
         self.mmc1.reg_write(
             addr as usize / 0x2000,
             val,
-            self.cpu.borrow().tk.borrow().clk_cyclenum / mos6502::CLK_DIVISOR,
+            self.tk.borrow().clk_cyclenum / mos6502::CLK_DIVISOR,
         );
         self.remap();
     }
