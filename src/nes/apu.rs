@@ -33,6 +33,9 @@ const PULSE_SEQUENCES: [[u8; 8]; 4] = [
 const DMC_RATES: [u16; 16] = [
     428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
 ];
+const NOISE_PERIODS: [u16; 16] = [
+    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
+];
 
 #[bitfield(bits = 8)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
@@ -376,6 +379,7 @@ impl Channel for Triangle {
 struct Noise {
     envelope: Envelope,
     length_counter: u8,
+    timer: u16,
     shift_reg: u16,
 }
 
@@ -397,11 +401,18 @@ impl Channel for Noise {
         self.envelope.quarter_frame(control.lch(), control.volume());
     }
 
-    fn half_frame(&mut self, _control: &mut NoiseControl) {}
+    fn half_frame(&mut self, _control: &mut NoiseControl) {
+        self.length_counter = self.length_counter.saturating_sub(1);
+    }
 
     fn tick(&mut self, control: &Self::Control) {
-        let feedback = self.sr_bit(0) ^ self.sr_bit(if control.mode() { 6 } else { 1 });
-        self.shift_reg = (self.shift_reg >> 1) | (feedback << 14);
+        if self.timer == 0 {
+            self.timer = NOISE_PERIODS[control.period() as usize];
+            let feedback = self.sr_bit(0) ^ self.sr_bit(if control.mode() { 6 } else { 1 });
+            self.shift_reg = (self.shift_reg >> 1) | (feedback << 14);
+        } else {
+            self.timer -= 1;
+        }
     }
 
     fn sample(&self, control: &Self::Control) -> u8 {
@@ -658,6 +669,7 @@ impl Apu {
         };
 
         apu.pulse2.is_pulse2 = true;
+        apu.noise.shift_reg = 1;
 
         let apu = r(apu);
 
