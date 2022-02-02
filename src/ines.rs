@@ -44,6 +44,7 @@ mod types {
         Horizontal = 0,
         Vertical = 1,
     }
+
     #[bitfield(bits = 8)]
     #[derive(Copy, Clone, Zeroable, Pod)]
     #[repr(C)]
@@ -55,12 +56,20 @@ mod types {
         pub mapper_nib_low: B4,
     }
 
+    #[derive(BitfieldSpecifier, Debug)]
+    #[bits = 2]
+    pub enum ConsoleType {
+        Nes = 0,
+        VsSystem = 1,
+        Playchoice10 = 2,
+        Extended = 3,
+    }
+
     #[bitfield(bits = 8)]
     #[derive(Copy, Clone, Zeroable, Pod)]
     #[repr(C)]
     pub struct Flags7 {
-        pub vs_unisystem: B1,
-        pub playchoice_10: B1,
+        pub console_type: ConsoleType,
         pub version: B2,
         pub mapper_nib_high: B4,
     }
@@ -70,7 +79,8 @@ mod types {
     #[repr(C)]
     pub struct Ines1Flags9 {
         pub tv_type: TvType,
-        reserved: B7,
+        #[skip]
+        __: B7,
     }
 
     #[bitfield(bits = 8)]
@@ -105,13 +115,22 @@ mod types {
         pub bb_chram_size: B4,
     }
 
+    #[derive(BitfieldSpecifier, PartialEq)]
+    #[bits = 2]
+    pub enum TimingMode {
+        Ntsc = 0,
+        Pal = 1,
+        Universal = 2,
+        Dendy = 3,
+    }
+
     #[bitfield(bits = 8)]
     #[derive(Copy, Clone, Zeroable, Pod)]
     #[repr(C)]
     pub struct Ines2Flags12 {
-        pub tv_type: TvType,
-        pub universal: B1,
-        reserved: B6,
+        pub timing_mode: TimingMode,
+        #[skip]
+        __: B6,
     }
 
     #[derive(Copy, Clone, Zeroable, Pod)]
@@ -206,18 +225,26 @@ pub fn rom_load(
 
     if common.flags6.trainer_present() != 0 {
         panic!("{path:?} requires trainer support");
-    } else if common.flags7.vs_unisystem() != 0 {
-        panic!("{path:?} requires Vs. Unisystem support");
-    } else if common.flags7.playchoice_10() != 0 {
-        panic!("{path:?} requires Playchoice 10 support");
     }
 
-    if if version == 2 {
-        ines2.flags12.universal() == 0 && ines2.flags12.tv_type() != TvType::Ntsc
+    match common.flags7.console_type() {
+        ConsoleType::Nes => (),
+        ConsoleType::VsSystem => panic!("{path:?} requires Vs. Unisystem support"),
+        ConsoleType::Playchoice10 => panic!("{path:?} requires Playchoice 10 support"),
+        ConsoleType::Extended => panic!("{path:?} requires Extended Console Type support"),
+    }
+
+    if version == 2 {
+        match ines2.flags12.timing_mode() {
+            TimingMode::Ntsc | TimingMode::Universal => (),
+            TimingMode::Pal => eprintln!("WARNING: {path:?} expects a PAL system"),
+            TimingMode::Dendy => eprintln!("WARNING: {path:?} expects a Dendy system"),
+        }
     } else {
-        ines1.flags9.tv_type() != TvType::Ntsc
-    } {
-        eprintln!("WARNING: {path:?} expects a PAL system");
+        match ines1.flags9.tv_type() {
+            TvType::Ntsc => (),
+            TvType::Pal => eprintln!("WARNING: {path:?} expects a PAL system"),
+        }
     }
 
     let ppu = setup_common(sdl, rm, cpu, palette_path, cscheme_path, scale)?;
