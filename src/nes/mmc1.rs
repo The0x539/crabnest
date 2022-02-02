@@ -15,8 +15,8 @@ pub enum Mirroring {
 
 #[derive(Debug, BitfieldSpecifier)]
 pub enum PrgromFixation {
-    High = 0,
-    Low = 1,
+    Low = 0,
+    High = 1,
 }
 
 #[derive(Debug, BitfieldSpecifier)]
