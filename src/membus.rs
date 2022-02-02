@@ -23,7 +23,7 @@ enum ReadMapping {
     },
     Data {
         mem: R<Memory>,
-        start: u16,
+        start: usize,
     },
 }
 
@@ -35,7 +35,7 @@ enum WriteMapping {
     },
     Data {
         mem: R<Memory>,
-        start: u16,
+        start: usize,
     },
 }
 
@@ -70,7 +70,7 @@ impl MemBus {
                 unmixed_val = handler.borrow_mut().read(final_addr as u16, &mut lane_mask);
             }
             ReadMapping::Data { mem, start } => {
-                let final_addr = addr % PAGESIZE as u16 + *start;
+                let final_addr = addr as usize % PAGESIZE + *start;
                 unmixed_val = mem.borrow().get(final_addr);
             }
         }
@@ -90,7 +90,7 @@ impl MemBus {
                 handler.borrow_mut().write(final_addr as u16, val);
             }
             WriteMapping::Data { mem, start } => {
-                let final_addr = addr % PAGESIZE as u16 + *start;
+                let final_addr = addr as usize % PAGESIZE + *start;
                 mem.borrow_mut().set(final_addr, val);
             }
         }
@@ -102,12 +102,12 @@ impl MemBus {
         self.write_mappings.borrow_mut()[pagenum] = WriteMapping::Unmapped;
     }
 
-    pub fn set_read_memory(&self, pagenum: usize, mem: &R<Memory>, start: u16) {
+    pub fn set_read_memory(&self, pagenum: usize, mem: &R<Memory>, start: usize) {
         let mem = mem.clone();
         self.read_mappings.borrow_mut()[pagenum] = ReadMapping::Data { mem, start };
     }
 
-    pub fn set_write_memory(&self, pagenum: usize, mem: &R<Memory>, start: u16) {
+    pub fn set_write_memory(&self, pagenum: usize, mem: &R<Memory>, start: usize) {
         let mem = mem.clone();
         self.write_mappings.borrow_mut()[pagenum] = WriteMapping::Data { mem, start };
     }

@@ -33,9 +33,9 @@ impl Memory {
 
         for i in 0..npages {
             let start_addr = start + i * membus::PAGESIZE;
-            bus.set_read_memory(start_page + i, this, start_addr as u16);
+            bus.set_read_memory(start_page + i, this, start_addr);
             if this.borrow().writeable {
-                bus.set_write_memory(start_page + i, this, start_addr as u16);
+                bus.set_write_memory(start_page + i, this, start_addr);
             }
         }
     }
@@ -53,15 +53,13 @@ impl Memory {
         }
     }
 
-    pub fn get(&self, addr: u16) -> u8 {
-        assert!((addr as usize) < self.bytes.len());
-        self.bytes[addr as usize]
+    pub fn get(&self, addr: usize) -> u8 {
+        self.bytes[addr]
     }
 
-    pub fn set(&mut self, addr: u16, val: u8) {
-        assert!((addr as usize) < self.bytes.len());
+    pub fn set(&mut self, addr: usize, val: u8) {
         assert!(self.writeable);
-        self.bytes[addr as usize] = val;
+        self.bytes[addr] = val;
     }
 }
 
