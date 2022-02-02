@@ -21,9 +21,7 @@ struct SxRom {
     ppu: R<Ppu>,
 
     prgrom: R<Memory>,
-    #[allow(dead_code)]
-    chrom: R<Memory>,
-    #[allow(dead_code)]
+    chr: R<Memory>,
     wram: Option<R<Memory>>,
     vram: R<Memory>,
 }
@@ -60,28 +58,28 @@ impl SxRom {
         let ppu = self.ppu.borrow();
         let pbus = &ppu.bus.borrow();
 
-        let chrom_size = self.chrom.borrow().size() as usize;
+        let chr_size = self.chr.borrow().size() as usize;
 
-        let pmap = |bus_start, size, start| Memory::map(&self.chrom, pbus, bus_start, size, start);
+        let pmap = |bus_start, size, start| Memory::map(&self.chr, pbus, bus_start, size, start);
 
         match r0.chr_switching() {
             ChrSwitching::EightK => {
                 pmap(
                     0x0000,
                     0x2000,
-                    (self.mmc1.reg.1.banksel8k() as usize * 0x2000) % chrom_size,
+                    (self.mmc1.reg.1.banksel8k() as usize * 0x2000) % chr_size,
                 );
             }
             ChrSwitching::FourK => {
                 pmap(
                     0x0000,
                     0x1000,
-                    (self.mmc1.reg.1.banksel4k() as usize * 0x1000) % chrom_size,
+                    (self.mmc1.reg.1.banksel4k() as usize * 0x1000) % chr_size,
                 );
                 pmap(
                     0x1000,
                     0x1000,
-                    (self.mmc1.reg.2.banksel4k() as usize * 0x1000) % chrom_size,
+                    (self.mmc1.reg.2.banksel4k() as usize * 0x1000) % chr_size,
                 );
             }
         }
@@ -109,18 +107,19 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
         return Err("ROM is missing PRGROM");
     }
 
-    if let Some(chrom_size) = mem_size(&info.chrom) {
-        if chrom_size % 0x2000 != 0 {
-            return Err("ROM's CHROM size is not a multiple of 8192");
-        }
-    } else {
-        return Err("ROM is missing CHROM");
+    let chr = match (&info.chrom, &info.chram) {
+        (Some(rom), None) => rom.clone(),
+        (None, Some(ram)) => ram.clone(),
+        (Some(_), Some(_)) => return Err("CHROM+CHRAM is not supported"),
+        (None, None) => return Err("ROM is missing CHR"),
+    };
+
+    if chr.borrow().size() % 0x2000 != 0 {
+        return Err("ROM's CHR size is not a multiple of 8192");
     }
 
-    assert_eq!(mem_size(&Some(info.vram.clone())), Some(0x0800));
-
-    if info.chram.is_some() {
-        return Err("CHRAM is not supported");
+    if info.vram.borrow().size() != 0x0800 {
+        return Err("ROM's VRAM size is not 2048");
     }
 
     let cart = r(SxRom {
@@ -129,7 +128,7 @@ pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
         tk: info.cpu.borrow().tk.clone(),
         ppu: info.ppu.clone(),
         prgrom: info.prgrom.clone().unwrap(),
-        chrom: info.chrom.clone().unwrap(),
+        chr,
         wram: info.wram.clone(),
         vram: info.vram.clone(),
     });

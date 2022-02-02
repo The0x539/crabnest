@@ -83,10 +83,16 @@ impl MemBus {
         let pagenum = addr as usize / PAGESIZE;
         assert!(pagenum < NPAGES);
 
-        match &self.write_mappings.borrow()[pagenum] {
+        let mappings = self.write_mappings.borrow();
+        match &mappings[pagenum] {
             WriteMapping::Unmapped => (),
             WriteMapping::Handler { handler, offset } => {
                 let final_addr = addr as usize % PAGESIZE + *offset;
+
+                // this little dance allows a write handler (namely sxrom's) to remap memory
+                let handler = handler.clone();
+                drop(mappings);
+
                 handler.borrow_mut().write(final_addr as u16, val);
             }
             WriteMapping::Data { mem, start } => {
