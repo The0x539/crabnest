@@ -146,27 +146,14 @@ fn alu_add(a: u8, b: u8, carry: u8) -> AluResult {
     let n = val > 0x7F;
     let c = (a as u16 + b as u16 + carry as u16) & 0xFF00 != 0;
 
-    let v = (a as i8)
-        .checked_add(b as i8)
-        .and_then(|ab| ab.checked_add(carry as i8))
-        .is_none();
+    // "both operands are positive and the result is negative, or vice versa"
+    let v = (a > 0x7F) == (b > 0x7F) && (a > 0x7F) != (val > 0x7F);
 
     AluResult { val, z, n, c, v }
 }
 
 fn alu_sub(a: u8, b: u8, carry: u8) -> AluResult {
-    let cc = 1 - carry;
-    let val = a.wrapping_sub(b).wrapping_sub(cc);
-    let z = val == 0;
-    let n = val > 0x7F;
-    let c = (a as i16 - b as i16 - cc as i16).to_le_bytes()[1] == 0;
-
-    let v = (a as i8)
-        .checked_sub(b as i8)
-        .and_then(|ab| ab.checked_sub(cc as i8))
-        .is_none();
-
-    AluResult { val, z, n, c, v }
+    return alu_add(a, !b, carry);
 }
 
 impl Mos6502 {
