@@ -23,7 +23,7 @@ struct SxRom {
     prg_rom: R<Memory>,
     chr: R<Memory>,
     prg_ram: Option<R<Memory>>,
-    prg_nvram: Option<R<Memory>>,
+    //prg_nvram: Option<R<Memory>>,
     vram: R<Memory>,
 }
 
@@ -98,15 +98,15 @@ pub fn setup(info: RomInfo) -> Result<(), &'static str> {
         ppu,
         prg_rom,
         prg_ram,
-        prg_nvram,
         chr,
         vram,
 
         mirroring: _,
+        prg_nvram: _,
     } = info;
 
-    if prg_rom.borrow().size() % 0x8000 != 0 {
-        return Err("ROM's PRGROM size is not a multiple of 32768");
+    if prg_rom.borrow().size() % 0x4000 != 0 {
+        return Err("ROM's PRGROM size is not a multiple of 16384");
     }
 
     if chr.borrow().size() % 0x2000 != 0 {
@@ -125,7 +125,6 @@ pub fn setup(info: RomInfo) -> Result<(), &'static str> {
         prg_rom,
         chr,
         prg_ram,
-        prg_nvram,
         vram,
     });
 
