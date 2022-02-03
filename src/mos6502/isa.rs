@@ -190,7 +190,7 @@ impl Mos6502 {
     pub fn step(&mut self) -> StepResult {
         let mut cycle_count = match self.intr_status.get() {
             Intr::Irq => {
-                if self.p.contains(StatReg::I) {
+                if !self.p.contains(StatReg::I) {
                     self.handle_irq()
                 } else {
                     0
