@@ -197,7 +197,8 @@ impl Mos6502 {
         self.intr_status.set(Intr::None);
 
         self.push16(self.pc);
-        self.push8((self.p | StatReg::B).bits);
+        self.push8((self.p | StatReg::B | StatReg::U).bits);
+        self.p.insert(StatReg::I);
 
         self.pc = self.read16(0xFFFE);
         7

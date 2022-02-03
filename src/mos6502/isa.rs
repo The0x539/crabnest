@@ -314,6 +314,7 @@ impl Mos6502 {
             BRK => {
                 self.pc += 1; // TODO: just "decode" another byte?
                 self.handle_irq();
+                self.p.insert(StatReg::I);
             }
 
             RTI => {
