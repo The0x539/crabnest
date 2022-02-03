@@ -20,9 +20,10 @@ struct SxRom {
     tk: R<Timekeeper>,
     ppu: R<Ppu>,
 
-    prgrom: R<Memory>,
+    prg_rom: R<Memory>,
     chr: R<Memory>,
-    wram: Option<R<Memory>>,
+    prg_ram: Option<R<Memory>>,
+    prg_nvram: Option<R<Memory>>,
     vram: R<Memory>,
 }
 
@@ -30,28 +31,28 @@ impl SxRom {
     fn remap(&mut self) {
         let bus = &self.bus.borrow();
 
-        let prgrom_size = self.prgrom.borrow().size();
+        let prg_rom_size = self.prg_rom.borrow().size();
         let banksel = self.mmc1.reg.3.banksel() as usize;
 
         self.mmc1
             .map_vram(&*self.ppu.borrow().bus.borrow(), &self.vram);
 
-        let map = |bus_start, size, start| Memory::map(&self.prgrom, bus, bus_start, size, start);
+        let map = |bus_start, size, start| Memory::map(&self.prg_rom, bus, bus_start, size, start);
 
         let r0 = &self.mmc1.reg.0;
         match (r0.prgrom_switching(), r0.prgrom_fixation()) {
             (PrgromSwitching::ThirtyTwoK, _) => {
-                map(0x8000, 0x8000, (0x4000 * (banksel & !1)) % prgrom_size);
+                map(0x8000, 0x8000, (0x4000 * (banksel & !1)) % prg_rom_size);
             }
 
             (PrgromSwitching::SixteenK, PrgromFixation::Low) => {
                 map(0x8000, 0x4000, 0x0000);
-                map(0xC000, 0x4000, (banksel * 0x4000) % prgrom_size);
+                map(0xC000, 0x4000, (banksel * 0x4000) % prg_rom_size);
             }
 
             (PrgromSwitching::SixteenK, PrgromFixation::High) => {
-                map(0x8000, 0x4000, (banksel * 0x4000) % prgrom_size);
-                map(0xC000, 0x4000, prgrom_size - 0x4000);
+                map(0x8000, 0x4000, (banksel * 0x4000) % prg_rom_size);
+                map(0xC000, 0x4000, prg_rom_size - 0x4000);
             }
         }
 
@@ -84,60 +85,54 @@ impl SxRom {
             }
         }
 
-        if let Some(wram) = &self.wram {
-            Memory::map(wram, bus, 0x6000, 0x2000, 0x0000);
+        if let Some(prg_ram) = &self.prg_ram {
+            Memory::map(prg_ram, bus, 0x6000, 0x2000, 0x0000);
         }
     }
 }
 
-fn mem_size(m: &Option<R<Memory>>) -> Option<usize> {
-    m.as_ref().map(|r| r.borrow().size())
-}
+pub fn setup(info: RomInfo) -> Result<(), &'static str> {
+    let RomInfo {
+        rm,
+        cpu,
+        ppu,
+        prg_rom,
+        prg_ram,
+        prg_nvram,
+        chr,
+        vram,
 
-pub fn setup(info: &mut RomInfo) -> Result<(), &'static str> {
-    if !matches!(mem_size(&info.wram), None | Some(0x2000)) {
-        return Err("ROM has an invalid WRAM configuration");
+        mirroring: _,
+    } = info;
+
+    if prg_rom.borrow().size() % 0x8000 != 0 {
+        return Err("ROM's PRGROM size is not a multiple of 32768");
     }
-
-    if let Some(prgrom_size) = mem_size(&info.prgrom) {
-        if prgrom_size % 0x8000 != 0 {
-            return Err("ROM's PRGROM size is not a multiple of 32768");
-        }
-    } else {
-        return Err("ROM is missing PRGROM");
-    }
-
-    let chr = match (&info.chrom, &info.chram) {
-        (Some(rom), None) => rom.clone(),
-        (None, Some(ram)) => ram.clone(),
-        (Some(_), Some(_)) => return Err("CHROM+CHRAM is not supported"),
-        (None, None) => return Err("ROM is missing CHR"),
-    };
 
     if chr.borrow().size() % 0x2000 != 0 {
         return Err("ROM's CHR size is not a multiple of 8192");
     }
 
-    if info.vram.borrow().size() != 0x0800 {
+    if vram.borrow().size() != 0x0800 {
         return Err("ROM's VRAM size is not 2048");
     }
 
     let cart = r(SxRom {
         mmc1: Mmc1::default(),
-        bus: info.cpu.borrow().bus.clone(),
-        tk: info.cpu.borrow().tk.clone(),
-        ppu: info.ppu.clone(),
-        prgrom: info.prgrom.clone().unwrap(),
+        bus: cpu.borrow().bus.clone(),
+        tk: cpu.borrow().tk.clone(),
+        ppu,
+        prg_rom,
         chr,
-        wram: info.wram.clone(),
-        vram: info.vram.clone(),
+        prg_ram,
+        prg_nvram,
+        vram,
     });
 
-    info.rm.borrow_mut().add_device(&cart);
+    rm.borrow_mut().add_device(&cart);
 
     for i in 0..0x80 {
-        info.cpu
-            .borrow()
+        cart.borrow()
             .bus
             .borrow()
             .set_write_handler(0x80 + i, &cart, i << 8);

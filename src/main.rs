@@ -79,7 +79,7 @@ fn load_rom(
         hawknest_rom_load(f, path, rm, cpu)?;
         Ok(())
     } else if magic == INES_MAGIC {
-        ines::rom_load(f, path, sdl, rm, cpu, palette_path, cscheme_path, scale)?;
+        ines::rom_load(f, sdl, rm, cpu, palette_path, cscheme_path, scale)?;
         Ok(())
     } else {
         Err(io::Error::new(

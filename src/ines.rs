@@ -1,8 +1,8 @@
 use std::fs::File;
-use std::io::{self, Read};
-use std::mem::size_of;
+use std::io::{self, Read, Seek};
 use std::path::Path;
 
+use bytemuck::Zeroable;
 use sdl2::Sdl;
 
 use crate::memory::Memory;
@@ -13,159 +13,25 @@ use crate::nes::ppu::Ppu;
 use crate::reset_manager::ResetManager;
 use crate::{r, R};
 
+mod header;
+pub use header::Mirroring;
+use header::Nes20Header;
+
 pub struct RomInfo {
     pub rm: R<ResetManager>,
     pub cpu: R<Mos6502>,
     pub ppu: R<Ppu>,
     pub mirroring: Mirroring,
 
-    pub wram: Option<R<Memory>>,
-    pub prgrom: Option<R<Memory>>,
-    pub chrom: Option<R<Memory>>,
-    pub chram: Option<R<Memory>>,
+    pub prg_rom: R<Memory>,
+    pub prg_ram: Option<R<Memory>>,
+    pub prg_nvram: Option<R<Memory>>,
+    pub chr: R<Memory>,
     pub vram: R<Memory>,
 }
 
-#[allow(dead_code)]
-mod types {
-    use bytemuck::{Pod, Zeroable};
-    use modular_bitfield::prelude::*;
-
-    #[derive(BitfieldSpecifier, PartialEq)]
-    #[bits = 1]
-    pub enum TvType {
-        Ntsc = 0,
-        Pal = 1,
-    }
-
-    #[derive(BitfieldSpecifier, PartialEq)]
-    #[bits = 1]
-    pub enum Mirroring {
-        Horizontal = 0,
-        Vertical = 1,
-    }
-
-    #[bitfield(bits = 8)]
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Flags6 {
-        pub mirroring: Mirroring,
-        pub wram_present: B1,
-        pub trainer_present: B1,
-        pub four_screen_vram: B1,
-        pub mapper_nib_low: B4,
-    }
-
-    #[derive(BitfieldSpecifier, Debug)]
-    #[bits = 2]
-    pub enum ConsoleType {
-        Nes = 0,
-        VsSystem = 1,
-        Playchoice10 = 2,
-        Extended = 3,
-    }
-
-    #[bitfield(bits = 8)]
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Flags7 {
-        pub console_type: ConsoleType,
-        pub version: B2,
-        pub mapper_nib_high: B4,
-    }
-
-    #[bitfield(bits = 8)]
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Ines1Flags9 {
-        pub tv_type: TvType,
-        #[skip]
-        __: B7,
-    }
-
-    #[bitfield(bits = 8)]
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Ines2Flags8 {
-        pub submapper: B4,
-        pub mapper_nib_higher: B4,
-    }
-
-    #[bitfield(bits = 8)]
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Ines2Flags9 {
-        pub chrom_size_nib: B4,
-        pub prgrom_size_nib: B4,
-    }
-
-    #[bitfield(bits = 8)]
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Ines2Flags10 {
-        pub nbb_wram_size: B4,
-        pub bb_wram_size: B4,
-    }
-
-    #[bitfield(bits = 8)]
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Ines2Flags11 {
-        pub nbb_chram_size: B4,
-        pub bb_chram_size: B4,
-    }
-
-    #[derive(BitfieldSpecifier, PartialEq)]
-    #[bits = 2]
-    pub enum TimingMode {
-        Ntsc = 0,
-        Pal = 1,
-        Universal = 2,
-        Dendy = 3,
-    }
-
-    #[bitfield(bits = 8)]
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Ines2Flags12 {
-        pub timing_mode: TimingMode,
-        #[skip]
-        __: B6,
-    }
-
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct CommonHeader {
-        pub prgrom_size: u8,
-        pub chrom_size: u8,
-        pub flags6: Flags6,
-        pub flags7: Flags7,
-    }
-
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Ines1Header {
-        pub wram_size: u8,
-        pub flags9: Ines1Flags9,
-        ignored: [u8; 6],
-    }
-
-    #[derive(Copy, Clone, Zeroable, Pod)]
-    #[repr(C)]
-    pub struct Ines2Header {
-        pub flags8: Ines2Flags8,
-        pub flags9: Ines2Flags9,
-        pub flags10: Ines2Flags10,
-        pub flags11: Ines2Flags11,
-        pub flags12: Ines2Flags12,
-        ignored: [u8; 3],
-    }
-}
-pub use types::*;
-
 pub fn rom_load(
     mut f: File,
-    path: &Path,
     sdl: &Sdl,
     rm: &R<ResetManager>,
     cpu: &R<Mos6502>,
@@ -173,133 +39,58 @@ pub fn rom_load(
     cscheme_path: &Path,
     scale: u32,
 ) -> io::Result<()> {
-    const HEADER_SIZE: usize = size_of::<CommonHeader>() + size_of::<Ines1Header>();
+    let mut header = Nes20Header::zeroed();
 
-    let mut header = [0; HEADER_SIZE];
-    f.read_exact(&mut header)?;
-
-    let (common_bytes, versioned_bytes) = header.split_at(size_of::<CommonHeader>());
-    let common: &CommonHeader = bytemuck::from_bytes(common_bytes);
-    let ines1: &Ines1Header = bytemuck::from_bytes(versioned_bytes);
-    let ines2: &Ines2Header = bytemuck::from_bytes(versioned_bytes);
-
-    let version = common.flags7.version();
-
-    let mut mapper = common.flags6.mapper_nib_low() as usize;
-    mapper += (common.flags7.mapper_nib_high() as usize) << 4;
-    if version == 2 {
-        mapper += (ines2.flags8.mapper_nib_higher() as usize) << 8;
-    }
-
-    let mut prgrom_size = 16384 * common.prgrom_size as usize;
-    let mut chrom_size = 8192 * common.chrom_size as usize;
-    if version == 2 {
-        prgrom_size += ((ines2.flags9.prgrom_size_nib() as usize) << 8) * 16384;
-        chrom_size += ((ines2.flags9.chrom_size_nib() as usize) << 8) * 8192;
-    }
-
-    let wram_size: usize;
-    let chram_size: usize;
-    if version == 2 {
-        wram_size = decode_ram_size(ines2.flags10.nbb_wram_size() as usize)
-            + decode_ram_size(ines2.flags10.bb_wram_size() as usize);
-        chram_size = decode_ram_size(ines2.flags11.nbb_chram_size() as usize)
-            + decode_ram_size(ines2.flags11.bb_chram_size() as usize);
-    } else {
-        if common.flags6.wram_present() != 0 {
-            if ines1.wram_size != 0 {
-                wram_size = 8192 * ines1.wram_size as usize;
-            } else {
-                wram_size = 8192;
-            }
-        } else {
-            wram_size = 0;
-        }
-
-        if chrom_size == 0 {
-            chram_size = 8192;
-        } else {
-            chram_size = 0;
-        }
-    }
-
-    if common.flags6.trainer_present() != 0 {
-        panic!("{path:?} requires trainer support");
-    }
-
-    match common.flags7.console_type() {
-        ConsoleType::Nes => (),
-        ConsoleType::VsSystem => panic!("{path:?} requires Vs. Unisystem support"),
-        ConsoleType::Playchoice10 => panic!("{path:?} requires Playchoice 10 support"),
-        ConsoleType::Extended => panic!("{path:?} requires Extended Console Type support"),
-    }
-
-    if version == 2 {
-        match ines2.flags12.timing_mode() {
-            TimingMode::Ntsc | TimingMode::Universal => (),
-            TimingMode::Pal => eprintln!("WARNING: {path:?} expects a PAL system"),
-            TimingMode::Dendy => eprintln!("WARNING: {path:?} expects a Dendy system"),
-        }
-    } else {
-        match ines1.flags9.tv_type() {
-            TvType::Ntsc => (),
-            TvType::Pal => eprintln!("WARNING: {path:?} expects a PAL system"),
-        }
-    }
-
-    let ppu = setup_common(sdl, rm, cpu, palette_path, cscheme_path, scale)?;
-
-    let mut info = RomInfo {
-        rm: rm.clone(),
-        cpu: cpu.clone(),
-        mirroring: common.flags6.mirroring(),
-        ppu,
-        wram: None,
-        prgrom: None,
-        chrom: None,
-        chram: None,
-        vram: Memory::new(rm, 0x0800, true),
-    };
-
-    if wram_size > 0 {
-        info.wram = Some(Memory::new(rm, wram_size, true));
-    }
-
-    if prgrom_size > 0 {
-        let prgrom = Memory::new(rm, prgrom_size, false);
-        f.read_exact(&mut prgrom.borrow_mut().bytes)?;
-        info.prgrom = Some(prgrom);
-    }
-
-    if chrom_size > 0 {
-        let chrom = Memory::new(rm, chrom_size, false);
-        f.read_exact(&mut chrom.borrow_mut().bytes)?;
-        info.chrom = Some(chrom);
-    }
-
-    if chram_size > 0 {
-        info.chram = Some(Memory::new(rm, chram_size, true));
-    }
-
-    use crate::nes::{nrom, sxrom};
+    f.rewind()?;
+    f.read_exact(bytemuck::bytes_of_mut(&mut header))?;
+    let header = header;
 
     let e = |msg: &str| io::Error::new(io::ErrorKind::InvalidData, msg);
 
-    match mapper {
-        0 => nrom::setup(&mut info).map_err(e),
-        1 => sxrom::setup(&mut info).map_err(e),
-        _ => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            format!("{path:?} requires mapper #{mapper}; only mappers #0 and #1 are supported"),
-        )),
-    }
-}
+    header.validate().map_err(|m| e(&m))?;
 
-fn decode_ram_size(encoded: usize) -> usize {
-    if encoded == 0 {
-        0
+    let mem = |size, w| {
+        if size == 0 {
+            None
+        } else {
+            Some(Memory::new(rm, size, w))
+        }
+    };
+
+    let prg_rom = mem(header.prg_rom_size(), false).unwrap();
+    let prg_ram = mem(header.prg_ram_size(), true);
+    let prg_nvram = mem(header.prg_nvram_size(), true);
+
+    let chr = if header.chr_rom_size() != 0 {
+        Memory::new(rm, header.chr_rom_size(), false)
     } else {
-        64 << encoded
+        Memory::new(rm, header.chr_ram_size(), true)
+    };
+
+    let vram = Memory::new(rm, 0x0800, true);
+
+    let ppu = setup_common(sdl, rm, cpu, palette_path, cscheme_path, scale)?;
+
+    f.read_exact(&mut prg_rom.borrow_mut().bytes)?;
+
+    let info = RomInfo {
+        rm: rm.clone(),
+        cpu: cpu.clone(),
+        mirroring: header.nt_mirroring(),
+        ppu,
+        prg_rom,
+        prg_ram,
+        prg_nvram,
+        chr,
+        vram,
+    };
+
+    use crate::nes::{nrom, sxrom};
+
+    match header.mapper() {
+        0 => nrom::setup(info).map_err(e),
+        1 => sxrom::setup(info).map_err(e),
+        _ => unreachable!(),
     }
 }
 
