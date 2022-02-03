@@ -553,7 +553,7 @@ impl Apu {
         let n = self.frame_step;
         let (do_qf, do_hf, do_irq);
 
-        if self.regs.frame_counter.sequence() {
+        if !self.regs.frame_counter.sequence() {
             do_qf = true;
             do_hf = n == 1 || n == 3;
             do_irq = n == 3 && !self.regs.frame_counter.disable_int();
