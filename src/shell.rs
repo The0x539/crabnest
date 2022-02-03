@@ -77,6 +77,9 @@ enum Cli {
     /// Set a breakpoint at addr
     #[clap(alias = "b")]
     Break { addr: Hex16 },
+    /// Disassemble n instructions starting at addr
+    #[clap(aliases = &["di", "da", "d"])]
+    Disassemble { n: u16, addr: Option<Hex16> },
 }
 
 pub fn run_shell(cpu: R<Mos6502>, interactive: bool) {
@@ -159,8 +162,9 @@ fn handle_cmd(command: Cli, cpu: &mut Mos6502, breakpoints: &mut BTreeSet<u16>) 
         }
         Cli::Poke { addr, value } => cpu.bus.borrow().write(addr.0, value.0),
         Cli::Dumpmem { start, len } => cmd_dumpmem(cpu, start.0, len),
-        Cli::Irq => cpu.raise_irq(),
-        Cli::Nmi => cpu.raise_nmi(),
+        Cli::Disassemble { n, addr } => cmd_disassemble(cpu, addr, n),
+        Cli::Irq => todo!(),
+        Cli::Nmi => todo!(),
         Cli::Print => cmd_print_instr(cpu),
         Cli::Continue => cmd_cont(cpu, breakpoints),
         Cli::Quit => {
@@ -238,6 +242,18 @@ fn cmd_dumpmem(cpu: &Mos6502, addr: u16, count: u16) {
             print!(" {v:02x}");
         }
         println!();
+    }
+}
+
+fn cmd_disassemble(cpu: &Mos6502, addr: Option<Hex16>, count: u16) {
+    let mut addr = match addr {
+        Some(Hex16(n)) => n,
+        None => cpu.pc,
+    };
+    for _ in 0..count {
+        let s = cpu.instr_repr(addr);
+        println!(" ${addr:04x}: {s}");
+        addr += cpu.instr_width(addr);
     }
 }
 

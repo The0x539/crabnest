@@ -1,5 +1,3 @@
-use crate::mos6502::Intr;
-
 use super::{Mos6502, StatReg, StepResult};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -187,18 +185,43 @@ impl Mos6502 {
         }
     }
 
+    pub fn instr_width(&self, addr: u16) -> u16 {
+        let opcode = self.read8(addr) as usize;
+        if opcode == 0x00 {
+            return 2;
+        }
+        use AddrMode::*;
+        match ADDR_MODES[opcode] {
+            None | Acc | Impl => 1,
+            Imm | IdxInd | IndIdx | Rel | ZeroP | ZeroPX | ZeroPY => 2,
+            Ind | Abs | AbsX | AbsY => 3,
+        }
+    }
+
     pub fn step(&mut self) -> StepResult {
-        let mut cycle_count = match self.intr_status.get() {
-            Intr::Irq => {
-                if !self.p.contains(StatReg::I) {
-                    self.handle_irq()
-                } else {
-                    0
-                }
+        let mut cycle_count = 0;
+
+        if self.irq_pin.active() {
+            println!(
+                "{} {} {} {}",
+                self.irq_pin.active(),
+                self.p.contains(StatReg::I),
+                self.delay_irq,
+                self.delay_irq_mask,
+            );
+        }
+
+        if self.nmi_pin.poll() {
+            cycle_count += self.handle_nmi();
+        } else if self.irq_pin.active() && !self.delay_irq {
+            if !self.p.contains(StatReg::I) || self.delay_irq_mask {
+                println!("IRQ");
+                cycle_count += self.handle_irq();
             }
-            Intr::Nmi => self.handle_nmi(),
-            Intr::None => 0,
-        };
+        }
+
+        self.delay_irq = false;
+        self.delay_irq_mask = false;
 
         let opcode = self.read8pc() as usize;
         cycle_count += INSTR_CYCLES[opcode] as usize;
@@ -446,8 +469,16 @@ impl Mos6502 {
             CLC => self.p.remove(StatReg::C),
             SED => self.p.insert(StatReg::D),
             CLD => self.p.remove(StatReg::D),
-            SEI => self.p.insert(StatReg::I),
-            CLI => self.p.remove(StatReg::I),
+            SEI => {
+                println!("SEI");
+                self.p.insert(StatReg::I);
+                self.delay_irq_mask = true;
+            }
+            CLI => {
+                println!("CLI");
+                self.p.remove(StatReg::I);
+                self.delay_irq = true;
+            }
             CLV => self.p.remove(StatReg::V),
 
             // stack ops

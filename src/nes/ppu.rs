@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use std::{cell::Cell, rc::Rc};
-
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
 use ouroboros::self_referencing;
@@ -13,7 +11,7 @@ use sdl2::{
 };
 
 use crate::membus::{MemBus, MemRead, MemWrite};
-use crate::mos6502::{Intr, Mos6502};
+use crate::mos6502::{Mos6502, NmiLine};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::timekeeper::Timed;
 use crate::{r, R};
@@ -222,7 +220,7 @@ struct PpuSdl {
 
 pub struct Ppu {
     pub bus: R<MemBus>,
-    intr: Rc<Cell<Intr>>,
+    nmi_line: NmiLine,
 
     sdl: PpuSdl,
     sdl_events: R<EventPump>,
@@ -608,7 +606,7 @@ impl Ppu {
 
         let ppu = r(Ppu {
             bus,
-            intr: cpu.intr_status.clone(),
+            nmi_line: cpu.get_nmi_line(),
             sdl: ppu_sdl,
             sdl_events: event_pump,
             state: Zeroable::zeroed(),
@@ -803,7 +801,7 @@ impl Timed for Ppu {
         if self.state.slnum == 241 && self.state.dotnum == 1 {
             self.state.flags.set_vblank(true);
             if self.state.flags.nmi_en() {
-                self.intr.set(Intr::Nmi);
+                self.nmi_line.raise();
             }
             self.present_frame();
         }
@@ -916,7 +914,7 @@ impl MemWrite for Ppu {
                 let old_nmi_en = state.flags.nmi_en();
                 state.flags.set_nmi_en(val & 0x80 != 0);
                 if state.flags.nmi_en() != old_nmi_en && state.flags.vblank() {
-                    self.intr.set(Intr::Nmi);
+                    self.nmi_line.raise();
                 }
             }
 

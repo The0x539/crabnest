@@ -26,11 +26,89 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
-pub enum Intr {
-    None,
-    Irq,
-    Nmi,
+struct IrqPin {
+    count: Rc<Cell<u8>>,
+}
+
+impl IrqPin {
+    fn new() -> Self {
+        Self {
+            count: Default::default(),
+        }
+    }
+
+    fn get_line(&self) -> IrqLine {
+        assert!(Rc::strong_count(&self.count) < u8::MAX as usize);
+        IrqLine {
+            count: self.count.clone(),
+            active: false,
+        }
+    }
+
+    fn active(&self) -> bool {
+        self.count.get() > 0
+    }
+}
+
+pub struct IrqLine {
+    count: Rc<Cell<u8>>,
+    active: bool,
+}
+
+impl IrqLine {
+    pub fn raise(&mut self) {
+        if !self.active {
+            self.active = true;
+            self.count.set(self.count.get() + 1);
+        }
+    }
+
+    pub fn clear(&mut self) -> bool {
+        let val = self.active;
+        if self.active {
+            self.active = false;
+            self.count.set(self.count.get() - 1);
+        }
+        val
+    }
+}
+
+impl Drop for IrqLine {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
+struct NmiPin {
+    state: Rc<Cell<bool>>,
+}
+
+impl NmiPin {
+    fn new() -> Self {
+        Self {
+            state: Default::default(),
+        }
+    }
+
+    fn get_line(&self) -> NmiLine {
+        NmiLine {
+            state: self.state.clone(),
+        }
+    }
+
+    fn poll(&mut self) -> bool {
+        self.state.take()
+    }
+}
+
+pub struct NmiLine {
+    state: Rc<Cell<bool>>,
+}
+
+impl NmiLine {
+    pub fn raise(&mut self) {
+        self.state.set(true);
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -52,9 +130,13 @@ pub struct Mos6502 {
     pub y: u8,
     pub p: StatReg,
 
-    pub intr_status: Rc<Cell<Intr>>,
-
     pub paravirt: bool,
+
+    irq_pin: IrqPin,
+    nmi_pin: NmiPin,
+    // TODO: this is a hack
+    delay_irq: bool,
+    delay_irq_mask: bool,
 
     #[cfg(feature = "cyclecheck")]
     last_branch_delay: u64,
@@ -82,7 +164,10 @@ impl Mos6502 {
             x: 0,
             y: 0,
             p: StatReg::empty(),
-            intr_status: Rc::new(Cell::new(Intr::None)),
+            irq_pin: IrqPin::new(),
+            nmi_pin: NmiPin::new(),
+            delay_irq: false,
+            delay_irq_mask: false,
             #[cfg(feature = "cyclecheck")]
             last_branch_delay: 0,
             #[cfg(feature = "cyclecheck")]
@@ -116,12 +201,12 @@ impl Mos6502 {
         self.advance_clk(8);
     }
 
-    pub fn raise_irq(&self) {
-        self.intr_status.set(Intr::Irq);
+    pub fn get_irq_line(&self) -> IrqLine {
+        self.irq_pin.get_line()
     }
 
-    pub fn raise_nmi(&self) {
-        self.intr_status.set(Intr::Nmi);
+    pub fn get_nmi_line(&self) -> NmiLine {
+        self.nmi_pin.get_line()
     }
 
     pub fn read8(&self, addr: u16) -> u8 {
@@ -194,19 +279,16 @@ impl Mos6502 {
     }
 
     fn handle_irq(&mut self) -> usize {
-        self.intr_status.set(Intr::None);
-
         self.push16(self.pc);
         self.push8((self.p | StatReg::B | StatReg::U).bits);
         self.p.insert(StatReg::I);
 
         self.pc = self.read16(0xFFFE);
+
         7
     }
 
     fn handle_nmi(&mut self) -> usize {
-        self.intr_status.set(Intr::None);
-
         self.push16(self.pc);
         self.push8((self.p | StatReg::B).bits);
 

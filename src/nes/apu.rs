@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use std::{cell::Cell, rc::Rc};
-
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
 use sdl2::{
@@ -11,7 +9,7 @@ use sdl2::{
 
 use crate::{
     membus::{MemBus, MemRead, MemWrite},
-    mos6502::{self, Intr, Mos6502},
+    mos6502::{self, IrqLine, Mos6502},
     r,
     reset_manager::ResetManager,
     timekeeper::Timed,
@@ -161,7 +159,7 @@ struct ApuStatus {
 #[bitfield(bits = 8)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
-struct FrameCounter {
+struct FrameCounterControl {
     sequence: bool,
     disable_int: bool,
     #[skip]
@@ -179,7 +177,7 @@ struct ApuRegs {
     _padding1: u8,
     control: ApuControl,
     _padding2: u8,
-    frame_counter: FrameCounter,
+    frame_counter: FrameCounterControl,
 }
 
 static_assertions::assert_eq_size!(ApuRegs, [u8; 0x18]);
@@ -532,6 +530,39 @@ fn inv_or_zero(n: f64) -> f64 {
     }
 }
 
+struct FrameCounter {
+    timer: u8,
+    irq_line: IrqLine,
+}
+
+impl FrameCounter {
+    fn step(&mut self, control: &FrameCounterControl) {
+        self.timer += 1;
+        // 5 steps if 1, 4 steps if 0
+        self.timer %= 4 + control.sequence() as u8;
+
+        if !control.sequence() && self.timer == 3 && !control.disable_int() {
+            self.irq_line.raise()
+        }
+    }
+
+    fn quarter(&self, control: &FrameCounterControl) -> bool {
+        if control.sequence() {
+            self.timer != 3
+        } else {
+            true
+        }
+    }
+
+    fn half(&self, control: &FrameCounterControl) -> bool {
+        if control.sequence() {
+            self.timer == 1 || self.timer == 4
+        } else {
+            self.timer == 1 || self.timer == 3
+        }
+    }
+}
+
 pub struct Apu {
     regs: ApuRegs,
 
@@ -541,8 +572,7 @@ pub struct Apu {
     noise: Noise,
     dmc: Dmc,
 
-    frame_step: u8,
-    intr: Rc<Cell<Intr>>,
+    frame_counter: FrameCounter,
 
     samples: Vec<f32>,
     queue: AudioQueue<f32>,
@@ -550,37 +580,23 @@ pub struct Apu {
 
 impl Apu {
     fn do_frame_tick(&mut self) {
-        let n = self.frame_step;
-        let (do_qf, do_hf, do_irq);
+        let fc = &mut self.frame_counter;
+        let fcc = &self.regs.frame_counter;
+        fc.step(fcc);
 
-        if !self.regs.frame_counter.sequence() {
-            do_qf = true;
-            do_hf = n == 1 || n == 3;
-            do_irq = n == 3 && !self.regs.frame_counter.disable_int();
-            self.frame_step = (n + 1) % 4;
-        } else {
-            do_qf = n != 3;
-            do_hf = n == 1 || n == 4;
-            do_irq = false;
-            self.frame_step = (n + 1) % 5;
-        }
-
-        if do_qf {
+        if fc.quarter(fcc) {
             self.pulse1.quarter_frame(&self.regs.pulse1);
             self.pulse2.quarter_frame(&self.regs.pulse2);
             self.triangle.quarter_frame(&self.regs.triangle);
             self.noise.quarter_frame(&self.regs.noise);
             self.dmc.quarter_frame(&self.regs.dmc);
         }
-        if do_hf {
+        if fc.half(fcc) {
             self.pulse1.half_frame(&mut self.regs.pulse1);
             self.pulse2.half_frame(&mut self.regs.pulse2);
             self.triangle.half_frame(&mut self.regs.triangle);
             self.noise.half_frame(&mut self.regs.noise);
             self.dmc.half_frame(&mut self.regs.dmc);
-        }
-        if do_irq {
-            self.intr.set(Intr::Irq);
         }
 
         self.queue.queue(&self.samples);
@@ -652,6 +668,11 @@ impl Apu {
             output_unit: Default::default(),
         };
 
+        let frame_counter = FrameCounter {
+            timer: 0,
+            irq_line: cpu.get_irq_line(),
+        };
+
         let mut apu = Apu {
             regs: Zeroable::zeroed(),
 
@@ -661,8 +682,7 @@ impl Apu {
             noise: Default::default(),
             dmc,
 
-            frame_step: 0,
-            intr: cpu.intr_status.clone(),
+            frame_counter,
 
             samples: Vec::with_capacity(65536),
             queue,
@@ -695,19 +715,20 @@ impl Apu {
 impl MemRead for Apu {
     fn read(&mut self, addr: u16, lane_mask: &mut u8) -> u8 {
         if addr == 0x15 {
+            println!("clearing frame int");
             *lane_mask = 0xFF;
             let mut status = ApuStatus::new();
-            // TODO: implement DMC and set this up accordingly
-            status.set_dmc_int(false);
-            // What is "the frame interrupt flag" and where do I clear it?
-            status.set_frame_int(false);
+            status.set_frame_int(self.frame_counter.irq_line.clear());
 
-            status.set_dmc_active(false);
+            // TODO: this should be an actual interrupt line
+            status.set_dmc_int(self.dmc.interrupt_flag);
 
             status.set_noise_lc_st(self.noise.length_counter > 0);
             status.set_tri_lc_st(self.triangle.length_counter > 0);
             status.set_p2_lc_st(self.pulse2.length_counter > 0);
             status.set_p1_lc_st(self.pulse1.length_counter > 0);
+
+            status.set_dmc_active(self.dmc.mem_reader.bytes_remaining > 0);
 
             status.bytes[0]
         } else {
@@ -745,6 +766,9 @@ impl MemWrite for Apu {
                 let len = self.regs.dmc.s_len() as u16 * 16 + 1;
                 self.dmc.mem_reader.len = len;
                 self.dmc.mem_reader.bytes_remaining = len;
+            }
+            0x17 => {
+                // TODO: wonky delayed reset
             }
             _ => (),
         }
