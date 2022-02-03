@@ -134,9 +134,9 @@ pub struct Mos6502 {
 
     irq_pin: IrqPin,
     nmi_pin: NmiPin,
-    // TODO: this is a hack
-    delay_irq: bool,
-    delay_irq_mask: bool,
+
+    irq_pending: bool,
+    nmi_pending: bool,
 
     #[cfg(feature = "cyclecheck")]
     last_branch_delay: u64,
@@ -166,8 +166,8 @@ impl Mos6502 {
             p: StatReg::empty(),
             irq_pin: IrqPin::new(),
             nmi_pin: NmiPin::new(),
-            delay_irq: false,
-            delay_irq_mask: false,
+            irq_pending: false,
+            nmi_pending: false,
             #[cfg(feature = "cyclecheck")]
             last_branch_delay: 0,
             #[cfg(feature = "cyclecheck")]

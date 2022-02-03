@@ -715,7 +715,6 @@ impl Apu {
 impl MemRead for Apu {
     fn read(&mut self, addr: u16, lane_mask: &mut u8) -> u8 {
         if addr == 0x15 {
-            println!("clearing frame int");
             *lane_mask = 0xFF;
             let mut status = ApuStatus::new();
             status.set_frame_int(self.frame_counter.irq_line.clear());
