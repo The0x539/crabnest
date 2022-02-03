@@ -853,16 +853,18 @@ impl MemRead for Ppu {
             7 => {
                 // PPUDATA
                 let vram_addr = state.vram_addr.to_u16();
-                let val = if let Some(palloc) = state.palette_loc(vram_addr) {
-                    *palloc
-                } else {
-                    let addr = if (0x3000..0x3F00).contains(&vram_addr) {
-                        vram_addr - 0x1000
-                    } else {
-                        vram_addr
-                    };
-                    std::mem::replace(&mut state.vram_read_buf, self.bus.borrow().read(addr))
+                let unmirrored_addr = match vram_addr {
+                    0x3000..=0x3FFF => vram_addr - 0x1000,
+                    _ => vram_addr,
                 };
+                let data = self.bus.borrow().read(unmirrored_addr);
+                let buf_contents = std::mem::replace(&mut state.vram_read_buf, data);
+
+                let val = state
+                    .palette_loc(vram_addr)
+                    .copied()
+                    .unwrap_or(buf_contents);
+
                 state.inc_vram_addr_rw();
                 val
             }
