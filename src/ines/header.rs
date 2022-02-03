@@ -28,6 +28,61 @@ pub enum TimingMode {
 #[bitfield(bytes = 16)]
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
+pub struct GenericHeader {
+    #[skip]
+    __: B48,
+
+    #[skip]
+    __: B2,
+    header_version: B2,
+    #[skip]
+    __: B4,
+
+    #[skip]
+    __: B72,
+}
+
+#[bitfield(bytes = 16)]
+#[derive(Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
+pub struct InesHeader {
+    // bytes 0-3
+    cookie: u32,
+
+    // byte 4
+    prg_rom_units: u8,
+
+    // byte 5
+    chr_rom_units: u8,
+
+    // byte 6
+    pub nt_mirroring: Mirroring,
+    pub battery_present: bool,
+    pub trainer_present: bool,
+    pub four_screen_vram: bool,
+    mapper_lo: B4,
+
+    // byte 7
+    pub console_type: ConsoleType,
+    pub header_version: B2,
+    mapper_hi: B4,
+
+    // byte 8
+    prg_ram_units: u8,
+
+    // byte 9
+    timing_mode: TimingMode,
+    #[skip]
+    __: B6,
+
+    // bytes 8-15
+    #[skip]
+    __: B48,
+}
+
+#[bitfield(bytes = 16)]
+#[derive(Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
 pub struct Nes20Header {
     // bytes 0-3
     cookie: u32,
@@ -94,30 +149,39 @@ fn shift_mem(n: u8) -> usize {
     }
 }
 
-impl Nes20Header {
-    const IDENTIFICATION_STRING: [u8; 4] = *b"NES\x1a";
-    const VERSION: u8 = 2;
+pub trait Header {
+    fn identification_string(&self) -> [u8; 4] {
+        *b"NES\x1a"
+    }
+    fn expected_version(&self) -> u8;
 
-    pub fn validate(&self) -> Result<(), String> {
+    fn cookie(&self) -> [u8; 4];
+    fn header_version(&self) -> u8;
+    fn trainer_present(&self) -> bool;
+    fn console_type(&self) -> ConsoleType;
+    fn timing_mode(&self) -> TimingMode;
+    fn battery_present(&self) -> bool;
+
+    fn validate(&self) -> Result<(), String> {
         macro_rules! e {
             ($($x:tt)*) => {
                 return Err(format!($($x)*))
             }
         }
 
-        let cookie = self.cookie().to_ne_bytes();
-        if cookie != Self::IDENTIFICATION_STRING {
+        let cookie = self.cookie();
+        if cookie != self.identification_string() {
             e!(
                 "Invalid identification string: {cookie:?} (expected {:?})",
-                Self::IDENTIFICATION_STRING,
+                self.identification_string(),
             );
         }
 
         let version = self.header_version();
-        if version != Self::VERSION {
+        if version != self.expected_version() {
             e!(
                 "Invalid header version: {version:?} (expected {:?})",
-                Self::VERSION,
+                self.expected_version(),
             );
         }
 
@@ -160,20 +224,123 @@ impl Nes20Header {
         Ok(())
     }
 
-    pub fn mapper(&self) -> u16 {
+    fn mapper(&self) -> u16;
+    fn prg_rom_size(&self) -> usize;
+    fn chr_rom_size(&self) -> usize;
+    fn prg_ram_size(&self) -> usize;
+    fn chr_ram_size(&self) -> usize;
+    fn prg_nvram_size(&self) -> usize;
+    fn chr_nvram_size(&self) -> usize;
+    fn nt_mirroring(&self) -> Mirroring;
+}
+
+impl Header for InesHeader {
+    fn expected_version(&self) -> u8 {
+        0
+    }
+
+    fn cookie(&self) -> [u8; 4] {
+        self.cookie().to_ne_bytes()
+    }
+    fn header_version(&self) -> u8 {
+        self.header_version()
+    }
+    fn trainer_present(&self) -> bool {
+        self.trainer_present()
+    }
+    fn console_type(&self) -> ConsoleType {
+        self.console_type()
+    }
+    fn timing_mode(&self) -> TimingMode {
+        self.timing_mode()
+    }
+    fn battery_present(&self) -> bool {
+        self.battery_present()
+    }
+
+    fn mapper(&self) -> u16 {
+        let hi = self.mapper_hi() as u16;
+        let lo = self.mapper_lo() as u16;
+        hi << 4 | lo
+    }
+
+    fn prg_rom_size(&self) -> usize {
+        self.prg_rom_units() as usize * 0x4000
+    }
+
+    fn chr_rom_size(&self) -> usize {
+        self.chr_rom_units() as usize * 0x2000
+    }
+
+    fn prg_ram_size(&self) -> usize {
+        match self.prg_ram_units() {
+            0 => 0x2000,
+            n => n as usize * 0x2000,
+        }
+    }
+
+    fn chr_ram_size(&self) -> usize {
+        match self.chr_rom_units() {
+            0 => 0x2000,
+            _ => 0,
+        }
+    }
+
+    fn prg_nvram_size(&self) -> usize {
+        if self.battery_present() {
+            0x2000
+        } else {
+            0
+        }
+    }
+
+    fn chr_nvram_size(&self) -> usize {
+        0
+    }
+
+    fn nt_mirroring(&self) -> Mirroring {
+        self.nt_mirroring()
+    }
+}
+
+impl Header for Nes20Header {
+    fn expected_version(&self) -> u8 {
+        2
+    }
+
+    fn cookie(&self) -> [u8; 4] {
+        self.cookie().to_ne_bytes()
+    }
+    fn header_version(&self) -> u8 {
+        self.header_version()
+    }
+    fn trainer_present(&self) -> bool {
+        self.trainer_present()
+    }
+    fn console_type(&self) -> ConsoleType {
+        self.console_type()
+    }
+    fn timing_mode(&self) -> TimingMode {
+        self.timing_mode()
+    }
+    fn battery_present(&self) -> bool {
+        self.battery_present()
+    }
+
+    fn mapper(&self) -> u16 {
         let hi = self.mapper_hi() as u16;
         let mid = self.mapper_mid() as u16;
         let lo = self.mapper_lo() as u16;
         hi << 8 | mid << 4 | lo
     }
 
-    pub fn prg_rom_size(&self) -> usize {
+    fn prg_rom_size(&self) -> usize {
         let hi = self.prg_rom_size_hi() as usize;
         let lo = self.prg_rom_size_lo() as usize;
         (hi << 8 | lo) * 0x4000
     }
 
-    pub fn chr_rom_size(&self) -> usize {
+    fn chr_rom_size(&self) -> usize {
         let lo = self.chr_rom_size_lo() as usize;
         let hi = self.chr_rom_size_hi() as usize;
 
@@ -188,19 +355,33 @@ impl Nes20Header {
         0x2000 * units
     }
 
-    pub fn prg_ram_size(&self) -> usize {
+    fn prg_ram_size(&self) -> usize {
         shift_mem(self.prg_ram_shift_count())
     }
 
-    pub fn chr_ram_size(&self) -> usize {
+    fn chr_ram_size(&self) -> usize {
         shift_mem(self.chr_ram_shift_count())
     }
 
-    pub fn prg_nvram_size(&self) -> usize {
+    fn prg_nvram_size(&self) -> usize {
         shift_mem(self.prg_nvram_shift_count())
     }
 
-    pub fn chr_nvram_size(&self) -> usize {
+    fn chr_nvram_size(&self) -> usize {
         shift_mem(self.chr_nvram_shift_count())
+    }
+
+    fn nt_mirroring(&self) -> Mirroring {
+        self.nt_mirroring()
+    }
+}
+
+impl GenericHeader {
+    pub fn resolve(&self) -> &dyn Header {
+        if self.header_version() == 2 {
+            bytemuck::cast_ref::<_, Nes20Header>(self)
+        } else {
+            bytemuck::cast_ref::<_, InesHeader>(self)
+        }
     }
 }

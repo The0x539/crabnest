@@ -15,7 +15,6 @@ use crate::{r, R};
 
 mod header;
 pub use header::Mirroring;
-use header::Nes20Header;
 
 pub struct RomInfo {
     pub rm: R<ResetManager>,
@@ -39,11 +38,11 @@ pub fn rom_load(
     cscheme_path: &Path,
     scale: u32,
 ) -> io::Result<()> {
-    let mut header = Nes20Header::zeroed();
+    let mut header = header::GenericHeader::zeroed();
 
     f.rewind()?;
     f.read_exact(bytemuck::bytes_of_mut(&mut header))?;
-    let header = header;
+    let header = header.resolve();
 
     let e = |msg: &str| io::Error::new(io::ErrorKind::InvalidData, msg);
 
@@ -61,8 +60,12 @@ pub fn rom_load(
     let prg_ram = mem(header.prg_ram_size(), true);
     let prg_nvram = mem(header.prg_nvram_size(), true);
 
+    f.read_exact(&mut prg_rom.borrow_mut().bytes)?;
+
     let chr = if header.chr_rom_size() != 0 {
-        Memory::new(rm, header.chr_rom_size(), false)
+        let rom = Memory::new(rm, header.chr_rom_size(), false);
+        f.read_exact(&mut rom.borrow_mut().bytes)?;
+        rom
     } else {
         Memory::new(rm, header.chr_ram_size(), true)
     };
@@ -70,8 +73,6 @@ pub fn rom_load(
     let vram = Memory::new(rm, 0x0800, true);
 
     let ppu = setup_common(sdl, rm, cpu, palette_path, cscheme_path, scale)?;
-
-    f.read_exact(&mut prg_rom.borrow_mut().bytes)?;
 
     let info = RomInfo {
         rm: rm.clone(),
