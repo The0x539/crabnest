@@ -30,7 +30,7 @@ pub enum TimingMode {
 #[repr(C)]
 pub struct GenericHeader {
     #[skip]
-    __: B48,
+    __: B56,
 
     #[skip]
     __: B2,
@@ -39,7 +39,7 @@ pub struct GenericHeader {
     __: B4,
 
     #[skip]
-    __: B72,
+    __: B64,
 }
 
 #[bitfield(bytes = 16)]
