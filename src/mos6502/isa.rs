@@ -71,10 +71,10 @@ const PAGE_PENALTIES: [u8; 256] = [
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 8
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 9
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // A
-	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // B
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, // C
+	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, // B
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // C
 	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // D
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, // E
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // E
 	0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // F
 ];
 
@@ -200,8 +200,6 @@ impl Mos6502 {
             Intr::None => 0,
         };
 
-        let oldpc = self.pc;
-
         let opcode = self.read8pc() as usize;
         cycle_count += INSTR_CYCLES[opcode] as usize;
         let mode = ADDR_MODES[opcode];
@@ -222,7 +220,7 @@ impl Mos6502 {
                 } else {
                     self.y as u16
                 };
-                addr = base + offset;
+                addr = (base as i16 + offset as i16) as u16;
                 if addr & 0xFF00 != base & 0xFF00 {
                     cycle_count += PAGE_PENALTIES[opcode] as usize;
                 }
@@ -293,12 +291,12 @@ impl Mos6502 {
         macro_rules! branch {
             ($flag:ident, $expected:literal) => {{
                 if self.p.contains(StatReg::$flag) == $expected {
-                    self.pc = addr + 1;
-                    let penalty = if self.pc & 0xFF00 != oldpc & 0xFF00 {
+                    let penalty = if self.pc & 0xFF00 != addr + 1 & 0xFF00 {
                         2
                     } else {
                         1
                     };
+                    self.pc = addr + 1;
 
                     cycle_count += penalty;
                     #[cfg(feature = "cyclecheck")]
