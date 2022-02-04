@@ -32,7 +32,7 @@ pub(super) enum Instr {
     VMC, IUU,
     
     LAX, SAX, USC, DCP, ISC, SLO, RLA, SRE,
-    RRA, ANC, ALR, ARR, LXA, SBX,
+    RRA, ANC, ALR, ARR, LXA, SBX, SHY, SHX
 }
 
 #[rustfmt::skip]
@@ -91,7 +91,7 @@ const INSTRS: [Instr; 256] = {
         RTS, ADC, ___, RRA, NOP, ADC, ROR, RRA, PLA, ADC, ROR, ARR, JMP, ADC, ROR, RRA, // 6
         BVS, ADC, ___, RRA, NOP, ADC, ROR, RRA, SEI, ADC, NOP, RRA, NOP, ADC, ROR, RRA, // 7
         VMC, STA, NOP, SAX, STY, STA, STX, SAX, DEY, STA, TXA, ___, STY, STA, STX, SAX, // 8
-        BCC, STA, ___, ___, STY, STA, STX, SAX, TYA, STA, TXS, ___, ___, STA, STX, ___, // 9
+        BCC, STA, ___, ___, STY, STA, STX, SAX, TYA, STA, TXS, ___, SHY, STA, SHX, ___, // 9
         LDY, LDA, LDX, LAX, LDY, LDA, LDX, LAX, TAY, LDA, TAX, LXA, LDY, LDA, LDX, LAX, // A
         BCS, LDA, ___, LAX, LDY, LDA, LDX, LAX, CLV, LDA, TSX, ___, LDY, LDA, LDX, LAX, // B
         CPY, CMP, NOP, DCP, CPY, CMP, DEC, DCP, INY, CMP, DEX, SBX, CPY, CMP, DEC, DCP, // C
@@ -119,7 +119,7 @@ const ADDR_MODES: [AddrMode; 256] = {
         IMP, XIN, ___, XIN, ZPG, ZPG, ZPG, ZPG, IMP, IMM, ACC, IMM, IND, ABS, ABS, ABS, // 6
         REL, YIN, ___, YIN, ZPX, ZPX, ZPX, ZPX, IMP, ABY, IMP, ABY, ABX, ABX, ABX, ABX, // 7
         IMM, XIN, IMM, XIN, ZPG, ZPG, ZPG, ZPG, IMP, IMM, IMP, IMM, ABS, ABS, ABS, ABS, // 8
-        REL, YIN, ___, YIN, ZPX, ZPX, ZPY, ZPY, IMP, ABY, IMP, ABY, ABX, ABX, ABX, ABX, // 9
+        REL, YIN, ___, YIN, ZPX, ZPX, ZPY, ZPY, IMP, ABY, IMP, ABY, ABX, ABX, ABY, ABX, // 9
         IMM, XIN, IMM, XIN, ZPG, ZPG, ZPG, ZPG, IMP, IMM, IMP, IMM, ABS, ABS, ABS, ABS, // A
         REL, YIN, ___, YIN, ZPX, ZPX, ZPY, ZPY, IMP, ABY, IMP, ABY, ABX, ABX, ABY, ABY, // B
         IMM, XIN, IMM, XIN, ZPG, ZPG, ZPG, ZPG, IMP, IMM, IMP, IMM, ABS, ABS, ABS, ABS, // C
@@ -622,6 +622,18 @@ impl Mos6502 {
                 self.x = r.val;
                 self.setc(r.c);
                 self.setp(self.x);
+            }
+
+            SHY | SHX => {
+                let v = match instr {
+                    SHY => self.y,
+                    SHX => self.x,
+                    _ => unreachable!(),
+                };
+                let [addr_lo, addr_hi] = addr.to_le_bytes();
+                let val = v & addr_hi.wrapping_add(1);
+                let addr = u16::from_le_bytes([addr_lo, val]);
+                self.write8(addr, val);
             }
         }
 
