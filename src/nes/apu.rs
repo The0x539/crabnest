@@ -538,16 +538,20 @@ struct FrameCounter {
 }
 
 impl FrameCounter {
-    fn step(&mut self, control: &FrameCounterControl) {
-        self.timer += 1;
-        // 5 steps if 1, 4 steps if 0
-        self.timer %= 4 + control.sequence() as u8;
-
+    fn update_irq(&mut self, control: &FrameCounterControl) {
         if control.disable_int() {
             self.irq_line.clear();
         } else if !control.sequence() && self.timer == 3 {
             self.irq_line.raise();
         }
+    }
+
+    fn step(&mut self, control: &FrameCounterControl) {
+        self.timer += 1;
+        // 5 steps if 1, 4 steps if 0
+        self.timer %= 4 + control.sequence() as u8;
+
+        self.update_irq(control);
     }
 
     fn quarter(&self, control: &FrameCounterControl) -> bool {
@@ -779,6 +783,7 @@ impl MemWrite for Apu {
                     self.noise.half_frame(&mut self.regs.noise);
                     self.dmc.half_frame(&mut self.regs.dmc);
                 }
+                self.frame_counter.update_irq(&self.regs.frame_counter);
                 // TODO: wonky *delayed* reset
             }
             _ => (),
