@@ -763,7 +763,21 @@ impl MemWrite for Apu {
                 self.dmc.mem_reader.bytes_remaining = len;
             }
             0x17 => {
-                // TODO: wonky delayed reset
+                self.frame_counter.timer = 0;
+                if self.regs.frame_counter.sequence() {
+                    self.pulse1.quarter_frame(&self.regs.pulse1);
+                    self.pulse2.quarter_frame(&self.regs.pulse2);
+                    self.triangle.quarter_frame(&self.regs.triangle);
+                    self.noise.quarter_frame(&self.regs.noise);
+                    self.dmc.quarter_frame(&self.regs.dmc);
+
+                    self.pulse1.half_frame(&mut self.regs.pulse1);
+                    self.pulse2.half_frame(&mut self.regs.pulse2);
+                    self.triangle.half_frame(&mut self.regs.triangle);
+                    self.noise.half_frame(&mut self.regs.noise);
+                    self.dmc.half_frame(&mut self.regs.dmc);
+                }
+                // TODO: wonky *delayed* reset
             }
             _ => (),
         }
