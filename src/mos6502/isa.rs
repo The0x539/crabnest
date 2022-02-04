@@ -32,7 +32,7 @@ pub(super) enum Instr {
     VMC, IUU,
     
     LAX, SAX, USC, DCP, ISC, SLO, RLA, SRE,
-    RRA,
+    RRA, ANC, ALR, ARR, LXA, SBX,
 }
 
 #[rustfmt::skip]
@@ -82,19 +82,19 @@ const INSTRS: [Instr; 256] = {
     use Instr::*;
     [
         //0    1    2    3    4    5    6    7    8    9    A    B    C    D    E    F  
-        BRK, ORA, ___, SLO, NOP, ORA, ASL, SLO, PHP, ORA, ASL, ___, NOP, ORA, ASL, SLO, // 0
+        BRK, ORA, ___, SLO, NOP, ORA, ASL, SLO, PHP, ORA, ASL, ANC, NOP, ORA, ASL, SLO, // 0
         BPL, ORA, ___, SLO, NOP, ORA, ASL, SLO, CLC, ORA, NOP, SLO, NOP, ORA, ASL, SLO, // 1
-        JSR, AND, ___, RLA, BIT, AND, ROL, RLA, PLP, AND, ROL, ___, BIT, AND, ROL, RLA, // 2
+        JSR, AND, ___, RLA, BIT, AND, ROL, RLA, PLP, AND, ROL, ANC, BIT, AND, ROL, RLA, // 2
         BMI, AND, ___, RLA, NOP, AND, ROL, RLA, SEC, AND, NOP, RLA, NOP, AND, ROL, RLA, // 3
-        RTI, EOR, ___, SRE, NOP, EOR, LSR, SRE, PHA, EOR, LSR, ___, JMP, EOR, LSR, SRE, // 4
+        RTI, EOR, ___, SRE, NOP, EOR, LSR, SRE, PHA, EOR, LSR, ALR, JMP, EOR, LSR, SRE, // 4
         BVC, EOR, ___, SRE, NOP, EOR, LSR, SRE, CLI, EOR, NOP, SRE, NOP, EOR, LSR, SRE, // 5
-        RTS, ADC, ___, RRA, NOP, ADC, ROR, RRA, PLA, ADC, ROR, ___, JMP, ADC, ROR, RRA, // 6
+        RTS, ADC, ___, RRA, NOP, ADC, ROR, RRA, PLA, ADC, ROR, ARR, JMP, ADC, ROR, RRA, // 6
         BVS, ADC, ___, RRA, NOP, ADC, ROR, RRA, SEI, ADC, NOP, RRA, NOP, ADC, ROR, RRA, // 7
         VMC, STA, NOP, SAX, STY, STA, STX, SAX, DEY, STA, TXA, ___, STY, STA, STX, SAX, // 8
         BCC, STA, ___, ___, STY, STA, STX, SAX, TYA, STA, TXS, ___, ___, STA, STX, ___, // 9
-        LDY, LDA, LDX, LAX, LDY, LDA, LDX, LAX, TAY, LDA, TAX, ___, LDY, LDA, LDX, LAX, // A
+        LDY, LDA, LDX, LAX, LDY, LDA, LDX, LAX, TAY, LDA, TAX, LXA, LDY, LDA, LDX, LAX, // A
         BCS, LDA, ___, LAX, LDY, LDA, LDX, LAX, CLV, LDA, TSX, ___, LDY, LDA, LDX, LAX, // B
-        CPY, CMP, NOP, DCP, CPY, CMP, DEC, DCP, INY, CMP, DEX, ___, CPY, CMP, DEC, DCP, // C
+        CPY, CMP, NOP, DCP, CPY, CMP, DEC, DCP, INY, CMP, DEX, SBX, CPY, CMP, DEC, DCP, // C
         BNE, CMP, ___, DCP, NOP, CMP, DEC, DCP, CLD, CMP, NOP, DCP, NOP, CMP, DEC, DCP, // D
         CPX, SBC, NOP, ISC, CPX, SBC, INC, ISC, INX, SBC, NOP, USC, CPX, SBC, INC, ISC, // E
         BEQ, SBC, ___, ISC, NOP, SBC, INC, ISC, SED, SBC, NOP, ISC, NOP, SBC, INC, ISC, // F
@@ -584,6 +584,45 @@ impl Mos6502 {
                 self.a ^= val;
                 self.setp(self.a);
             }
+
+            ANC => {
+                self.a &= val8!();
+                self.setp(self.a);
+                self.setc(self.a & 0x80 != 0);
+            }
+
+            ALR => {
+                self.a &= val8!();
+                self.setc(self.a & 0x01 != 0);
+                self.a >>= 1;
+                self.setp(self.a);
+            }
+
+            ARR => {
+                self.a &= val8!();
+                self.a = (self.a >> 1) | (self.getc() << 7);
+                self.setp(self.a);
+
+                self.setc((self.a >> 6) & 0x01 != 0);
+
+                let overflow = (self.a >> 6) & 0x01 != (self.a >> 5) & 0x01;
+                self.p.set(StatReg::V, overflow);
+            }
+
+            LXA => {
+                const MAGIC: u8 = 0xFF;
+                self.a |= MAGIC;
+                self.a &= val8!();
+                self.x = self.a;
+                self.setp(self.x);
+            }
+
+            SBX => {
+                let r = alu_sub(self.a & self.x, val8!(), 1);
+                self.x = r.val;
+                self.setc(r.c);
+                self.setp(self.x);
+            }
         }
 
         self.advance_clk(cycle_count);
@@ -592,7 +631,7 @@ impl Mos6502 {
 
     fn setp(&mut self, val: u8) {
         self.p.set(StatReg::Z, val == 0);
-        self.p.set(StatReg::N, (val as i8) < 0);
+        self.p.set(StatReg::N, val > 0x7F);
     }
 
     fn setc(&mut self, val: bool) {
