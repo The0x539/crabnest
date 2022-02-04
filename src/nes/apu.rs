@@ -160,10 +160,10 @@ struct ApuStatus {
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct FrameCounterControl {
-    sequence: bool,
-    disable_int: bool,
     #[skip]
     __: B6,
+    disable_int: bool,
+    sequence: bool,
 }
 
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
@@ -541,8 +541,10 @@ impl FrameCounter {
         // 5 steps if 1, 4 steps if 0
         self.timer %= 4 + control.sequence() as u8;
 
-        if !control.sequence() && self.timer == 3 && !control.disable_int() {
-            self.irq_line.raise()
+        if control.disable_int() {
+            self.irq_line.clear();
+        } else if !control.sequence() && self.timer == 3 {
+            self.irq_line.raise();
         }
     }
 
