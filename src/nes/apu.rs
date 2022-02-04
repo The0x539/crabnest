@@ -399,8 +399,10 @@ impl Channel for Noise {
         self.envelope.quarter_frame(control.lch(), control.volume());
     }
 
-    fn half_frame(&mut self, _control: &mut NoiseControl) {
-        self.length_counter = self.length_counter.saturating_sub(1);
+    fn half_frame(&mut self, control: &mut NoiseControl) {
+        if !control.lch() {
+            self.length_counter = self.length_counter.saturating_sub(1);
+        }
     }
 
     fn tick(&mut self, control: &Self::Control) {
