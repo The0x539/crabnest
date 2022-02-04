@@ -325,10 +325,7 @@ impl Mos6502 {
         match instr {
             VMC => return self.handle_vmcall(imm8),
 
-            BRK => {
-                self.pc += 1;
-                self.irq_pending = true;
-            }
+            BRK => self.handle_brk(),
 
             RTI => {
                 self.p.bits = self.pop8();

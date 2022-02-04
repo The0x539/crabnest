@@ -280,7 +280,7 @@ impl Mos6502 {
 
     fn handle_irq(&mut self) -> usize {
         self.push16(self.pc);
-        self.push8((self.p | StatReg::B | StatReg::U).bits);
+        self.push8((self.p | StatReg::U).bits);
         self.p.insert(StatReg::I);
 
         self.pc = self.read16(0xFFFE);
@@ -290,9 +290,17 @@ impl Mos6502 {
 
     fn handle_nmi(&mut self) -> usize {
         self.push16(self.pc);
-        self.push8((self.p | StatReg::B).bits);
+        self.push8((self.p | StatReg::U).bits);
 
         self.pc = self.read16(0xFFFA);
         8
+    }
+
+    fn handle_brk(&mut self) {
+        self.push16(self.pc + 1);
+        self.push8((self.p | StatReg::B | StatReg::U).bits);
+        self.p.insert(StatReg::I);
+
+        self.pc = self.read16(0xFFFE);
     }
 }
