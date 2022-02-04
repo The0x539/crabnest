@@ -609,14 +609,8 @@ impl Apu {
         let triangle = self.triangle.sample(&self.regs.triangle) as f64;
         let noise = self.noise.sample(&self.regs.noise) as f64;
         let dmc = self.dmc.sample(&self.regs.dmc) as f64;
-        let pulse1 = self.pulse1.sample(&self.regs.pulse1) as f64 / 8.;
-        let pulse2 = self.pulse2.sample(&self.regs.pulse2) as f64 / 8.;
-
-        assert!(0. <= triangle && triangle <= 15.);
-        assert!(0. <= noise && noise <= 15.);
-        assert!(0. <= pulse1 && pulse1 <= 15.);
-        assert!(0. <= pulse2 && pulse2 <= 15.);
-        assert!(0. <= dmc && dmc <= 127.);
+        let pulse1 = self.pulse1.sample(&self.regs.pulse1) as f64;
+        let pulse2 = self.pulse2.sample(&self.regs.pulse2) as f64;
 
         let tnd_out = if triangle + noise + dmc != 0.0 {
             159.79 / (1. / (triangle / 8227. + noise / 12241. + dmc / 22638.) + 100.)
