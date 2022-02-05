@@ -475,7 +475,10 @@ impl PpuState {
     }
 
     fn move_cursor(&mut self) {
-        let sl_length = if self.slnum == 261 && self.framenum % 2 != 0 {
+        let sl_length = if self.slnum == 261
+            && self.framenum % 2 != 0
+            && (self.mask.bg_en() || self.mask.sprite_en())
+        {
             340
         } else {
             341
@@ -559,6 +562,16 @@ impl PpuState {
         addr += self.nt_latch as u16 * 16;
         addr += self.vram_addr.fine_yscroll() as u16;
         addr
+    }
+
+    fn check_vblank(&mut self) -> u8 {
+        let v = self.flags.vblank();
+        self.flags.set_vblank(false);
+        if self.slnum == 241 && self.dotnum == 2 {
+            0
+        } else {
+            v as u8
+        }
     }
 }
 
@@ -841,13 +854,12 @@ impl MemRead for Ppu {
             2 => {
                 // PPUSTATUS
                 let mut val = 0;
-                val |= (state.flags.vblank() as u8) << 7;
+                val |= state.check_vblank() << 7;
                 val |= (state.flags.sprite0_hit() as u8) << 6;
                 val |= (state.flags.sprite_overflow() as u8) << 5;
                 val |= state.decay_latch & 0b00011111;
 
                 state.flags.set_write_toggle(false);
-                state.flags.set_vblank(false);
 
                 val
             }
