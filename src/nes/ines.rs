@@ -7,11 +7,10 @@ use sdl2::Sdl;
 
 use crate::memory::Memory;
 use crate::mos6502::Mos6502;
-use crate::nes::apu::Apu;
-use crate::nes::io_reg::IoReg;
-use crate::nes::ppu::Ppu;
 use crate::reset_manager::ResetManager;
 use crate::{r, R};
+
+use super::{apu::Apu, io_reg::IoReg, ppu::Ppu};
 
 mod header;
 pub use header::Mirroring;
@@ -86,7 +85,7 @@ pub fn rom_load(
         vram,
     };
 
-    use crate::nes::{nrom, sxrom};
+    use super::mapper::{nrom, sxrom};
 
     match header.mapper() {
         0 => nrom::setup(info).map_err(e),

@@ -7,11 +7,8 @@ use crate::{
     R,
 };
 
-use super::{
-    ines::RomInfo,
-    mmc1::{ChrSwitching, Mmc1, PrgromFixation, PrgromSwitching},
-    ppu::Ppu,
-};
+use super::mmc1::{ChrSwitching, Mmc1, PrgromFixation, PrgromSwitching};
+use crate::nes::{ines::RomInfo, ppu::Ppu};
 
 struct SxRom {
     mmc1: Mmc1,
