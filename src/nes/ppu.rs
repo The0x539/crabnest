@@ -846,8 +846,14 @@ impl MemRead for Ppu {
                 val
             }
 
-            4 => state.oam()[state.oam_addr as usize], // OAMDATA
-
+            4 => {
+                // OAMDATA
+                let mut v = state.oam()[state.oam_addr as usize];
+                if state.oam_addr % 4 == 2 {
+                    v &= 0b11100011;
+                }
+                v
+            }
             7 => {
                 // PPUDATA
                 let vram_addr = state.vram_addr.to_u16();
