@@ -286,7 +286,7 @@ impl PpuState {
 
     fn clear_regs(&mut self) {
         let fl = &mut self.flags;
-        if self.dotnum == 1 && self.slnum == 261 {
+        if self.dotnum == 2 && self.slnum == 261 {
             fl.set_sprite0_hit(false);
             fl.set_sprite0_hit_shouldset(false);
             fl.set_sprite_overflow(false);
@@ -833,6 +833,7 @@ impl Timed for Ppu {
 
         self.draw_pixel();
 
+        // TODO: should this be moved up and stuff shifted by 1 cycle?
         self.state.move_cursor();
     }
 
