@@ -1,5 +1,4 @@
 use crate::{
-    ines::RomInfo,
     membus::{MemBus, MemWrite},
     memory::Memory,
     mos6502, r,
@@ -9,6 +8,7 @@ use crate::{
 };
 
 use super::{
+    ines::RomInfo,
     mmc1::{ChrSwitching, Mmc1, PrgromFixation, PrgromSwitching},
     ppu::Ppu,
 };

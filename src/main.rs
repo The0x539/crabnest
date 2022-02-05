@@ -9,23 +9,13 @@ use std::rc::Rc;
 use clap::Parser;
 use sdl2::Sdl;
 
-mod ines;
 mod membus;
 mod memory;
 mod mos6502;
+mod nes;
 mod reset_manager;
 mod shell;
 mod timekeeper;
-
-mod nes {
-    pub mod apu;
-    pub mod io_reg;
-    pub mod mmc1;
-    pub mod nrom;
-    pub mod pageforty;
-    pub mod ppu;
-    pub mod sxrom;
-}
 
 use memory::Memory;
 use mos6502::Mos6502;
@@ -79,7 +69,7 @@ fn load_rom(
         hawknest_rom_load(f, path, rm, cpu)?;
         Ok(())
     } else if magic == INES_MAGIC {
-        ines::rom_load(f, sdl, rm, cpu, palette_path, cscheme_path, scale)?;
+        nes::ines::rom_load(f, sdl, rm, cpu, palette_path, cscheme_path, scale)?;
         Ok(())
     } else {
         Err(io::Error::new(

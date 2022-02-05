@@ -1,7 +1,5 @@
-use crate::{
-    ines::{Mirroring, RomInfo},
-    memory::Memory,
-};
+use super::ines::{Mirroring, RomInfo};
+use crate::memory::Memory;
 
 pub fn setup(info: RomInfo) -> Result<(), &'static str> {
     if info.prg_ram.as_ref().map(|r| r.borrow().size()) > Some(0x2000) {
