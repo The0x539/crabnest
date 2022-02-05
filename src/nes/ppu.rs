@@ -942,7 +942,7 @@ impl MemWrite for Ppu {
 
                 let old_nmi_en = state.flags.nmi_en();
                 state.flags.set_nmi_en(val & 0x80 != 0);
-                if state.flags.nmi_en() != old_nmi_en && state.flags.vblank() {
+                if state.flags.nmi_en() && !old_nmi_en && state.flags.vblank() {
                     self.nmi_line.raise();
                 }
             }
