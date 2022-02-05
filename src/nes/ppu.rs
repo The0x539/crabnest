@@ -267,6 +267,8 @@ pub struct PpuState {
 
     palette_mem: [u8; 32],
     pub palette_srgb: [[u8; 3]; 512],
+
+    decay_latch: u8,
 }
 
 impl PpuState {
@@ -804,6 +806,7 @@ impl Timed for Ppu {
                 self.nmi_line.raise();
             }
             self.present_frame();
+            self.state.decay_latch = 0;
         }
 
         self.state.set_delayed_regs();
@@ -833,12 +836,15 @@ impl MemRead for Ppu {
     fn read(&mut self, addr: u16, _lane_mask: &mut u8) -> u8 {
         let state = &mut self.state;
         match addr % 8 {
+            0 | 1 | 3 | 5 | 6 | 0x14 => state.decay_latch,
+
             2 => {
                 // PPUSTATUS
                 let mut val = 0;
                 val |= (state.flags.vblank() as u8) << 7;
                 val |= (state.flags.sprite0_hit() as u8) << 6;
                 val |= (state.flags.sprite_overflow() as u8) << 5;
+                val |= state.decay_latch & 0b00011111;
 
                 state.flags.set_write_toggle(false);
                 state.flags.set_vblank(false);
@@ -851,9 +857,11 @@ impl MemRead for Ppu {
                 let mut v = state.oam()[state.oam_addr as usize];
                 if state.oam_addr % 4 == 2 {
                     v &= 0b11100011;
+                    state.decay_latch = v;
                 }
                 v
             }
+
             7 => {
                 // PPUDATA
                 let vram_addr = state.vram_addr.to_u16();
@@ -864,12 +872,13 @@ impl MemRead for Ppu {
                 let data = self.bus.borrow().read(unmirrored_addr);
                 let buf_contents = std::mem::replace(&mut state.vram_read_buf, data);
 
-                let val = state
-                    .palette_loc(vram_addr)
-                    .copied()
-                    .unwrap_or(buf_contents);
+                let val = match state.palette_loc(vram_addr) {
+                    Some(x) => *x | (state.decay_latch & 0b11000000),
+                    None => buf_contents,
+                };
 
                 state.inc_vram_addr_rw();
+                state.decay_latch = val;
                 val
             }
 
@@ -881,6 +890,7 @@ impl MemRead for Ppu {
 impl MemWrite for Ppu {
     fn write(&mut self, addr: u16, val: u8) {
         let state = &mut self.state;
+        state.decay_latch = val;
         match addr % 8 {
             0 => {
                 // PPUCTRL
