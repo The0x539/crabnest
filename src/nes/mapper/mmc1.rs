@@ -3,7 +3,7 @@
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
 
-use crate::{membus::MemBus, memory::Memory, reset_manager::Reset, R};
+use crate::reset_manager::Reset;
 
 #[derive(Debug, BitfieldSpecifier)]
 pub enum Mirroring {
@@ -44,23 +44,22 @@ pub struct Reg0 {
     __: B3,
 }
 
+#[bitfield(bits = 8)]
 #[derive(Debug, Default, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
-pub struct Reg1(u8);
+pub struct Reg1 {
+    pub banksel4k: B5,
+
+    #[skip]
+    ___: B3,
+}
 
 impl Reg1 {
-    pub fn banksel4k(&self) -> u8 {
-        self.0 & 0b11111
-    }
     pub fn banksel8k(&self) -> u8 {
         self.banksel4k() >> 1
     }
-    pub fn set_banksel4k(&mut self, val: u8) {
-        let mask = 0b00011111;
-        self.0 = (self.0 & !mask) | (val & mask);
-    }
     pub fn set_banksel8k(&mut self, val: u8) {
-        self.0 = (self.0 & 0b11100001) | ((val & 0b00001111) << 1);
+        self.set_banksel4k(val << 1);
     }
 }
 
@@ -78,11 +77,20 @@ pub struct Reg2 {
 #[derive(Debug, Default, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 pub struct Reg3 {
-    pub banksel: B4,
+    pub banksel16k: B4,
     pub wram_disabled: bool,
 
     #[skip]
     __: B3,
+}
+
+impl Reg3 {
+    pub fn banksel32k(&self) -> u8 {
+        self.banksel16k() >> 1
+    }
+    pub fn set_banksel32k(&mut self, val: u8) {
+        self.set_banksel16k(val << 1);
+    }
 }
 
 #[derive(Debug, Default, Copy, Clone, Zeroable, Pod)]
@@ -103,20 +111,6 @@ pub struct Mmc1 {
 impl Mmc1 {
     fn reset_shiftreg(&mut self) {
         self.shiftreg = 0x20;
-    }
-
-    pub fn map_vram(&self, bus: &MemBus, vram: &R<Memory>) {
-        let (a, b, c, d) = [
-            (0x0000, 0x0000, 0x0000, 0x0000), // OneScreenNt0
-            (0x0400, 0x0400, 0x0400, 0x0400), // OneScreenNt1
-            (0x0000, 0x0400, 0x0000, 0x0400), // Vertical
-            (0x0000, 0x0000, 0x0400, 0x0400), // Horizontal
-        ][self.reg.0.mirroring() as usize];
-
-        Memory::map(vram, bus, 0x2000, 0x0400, a);
-        Memory::map(vram, bus, 0x2400, 0x0400, b);
-        Memory::map(vram, bus, 0x2800, 0x0400, c);
-        Memory::map(vram, bus, 0x2C00, 0x0400, d);
     }
 
     pub fn reg_write(&mut self, regnum: usize, val: u8, cpu_cyclenum: u64) {
@@ -154,7 +148,7 @@ impl Reset for Mmc1 {
         self.reg.0.set_prgrom_fixation(PrgromFixation::Low);
         self.reg.0.set_prgrom_switching(PrgromSwitching::SixteenK);
 
-        self.reg.3.set_banksel(0xF);
+        self.reg.3.set_banksel16k(0xF);
         self.reg.3.set_wram_disabled(false);
 
         self.last_cpu_cyclenum = u64::MAX;

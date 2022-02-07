@@ -1,4 +1,4 @@
-use crate::membus::{self, MemBus};
+use crate::membus::{self, BankSel, MemBus};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::{r, R};
 
@@ -36,6 +36,23 @@ impl Memory {
             bus.set_read_memory(start_page + i, this, start_addr);
             if this.borrow().writeable {
                 bus.set_write_memory(start_page + i, this, start_addr);
+            }
+        }
+    }
+
+    pub fn map_switchable(this: &R<Self>, bus: &MemBus, bus_start: u16, size: u16, sel: &BankSel) {
+        assert!(bus_start as usize % membus::PAGESIZE == 0);
+        assert!(size as usize % membus::PAGESIZE == 0);
+        assert!(size as usize <= this.borrow().bytes.len());
+
+        let start_page = bus_start as usize / membus::PAGESIZE;
+        let npages = size as usize / membus::PAGESIZE;
+
+        for i in 0..npages {
+            let start_addr = i * membus::PAGESIZE;
+            bus.set_read_bank(start_page + i, this, start_addr, &sel);
+            if this.borrow().writeable {
+                bus.set_write_bank(start_page + i, this, start_addr, &sel);
             }
         }
     }
