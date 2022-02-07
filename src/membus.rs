@@ -15,29 +15,14 @@ pub trait MemWrite: 'static {
     fn write(&mut self, addr: u16, data: u8);
 }
 
-enum ReadMapping {
+enum Mapping<H: ?Sized> {
     Unmapped,
-    Handler {
-        handler: R<dyn MemRead>,
-        offset: usize,
-    },
-    Data {
-        mem: R<Memory>,
-        start: usize,
-    },
+    Handler { handler: R<H>, offset: usize },
+    Data { mem: R<Memory>, start: usize },
 }
 
-enum WriteMapping {
-    Unmapped,
-    Handler {
-        handler: R<dyn MemWrite>,
-        offset: usize,
-    },
-    Data {
-        mem: R<Memory>,
-        start: usize,
-    },
-}
+type ReadMapping = Mapping<dyn MemRead>;
+type WriteMapping = Mapping<dyn MemWrite>;
 
 pub struct MemBus {
     read_mappings: RefCell<[ReadMapping; NPAGES]>,
@@ -46,8 +31,8 @@ pub struct MemBus {
 
 impl MemBus {
     pub fn new(rm: &R<ResetManager>) -> R<Self> {
-        const RM_U: ReadMapping = ReadMapping::Unmapped;
-        const WM_U: WriteMapping = WriteMapping::Unmapped;
+        const RM_U: ReadMapping = Mapping::Unmapped;
+        const WM_U: WriteMapping = Mapping::Unmapped;
         let bus = r(Self {
             read_mappings: RefCell::new([RM_U; 256]),
             write_mappings: RefCell::new([WM_U; 256]),
@@ -64,12 +49,12 @@ impl MemBus {
         let mut lane_mask: u8 = 0xFF;
 
         match &self.read_mappings.borrow()[pagenum] {
-            ReadMapping::Unmapped => unmixed_val = 0x00,
-            ReadMapping::Handler { handler, offset } => {
+            Mapping::Unmapped => unmixed_val = 0x00,
+            Mapping::Handler { handler, offset } => {
                 let final_addr = addr as usize % PAGESIZE + *offset;
                 unmixed_val = handler.borrow_mut().read(final_addr as u16, &mut lane_mask);
             }
-            ReadMapping::Data { mem, start } => {
+            Mapping::Data { mem, start } => {
                 let final_addr = addr as usize % PAGESIZE + *start;
                 unmixed_val = mem.borrow().get(final_addr);
             }
@@ -85,8 +70,8 @@ impl MemBus {
 
         let mappings = self.write_mappings.borrow();
         match &mappings[pagenum] {
-            WriteMapping::Unmapped => (),
-            WriteMapping::Handler { handler, offset } => {
+            Mapping::Unmapped => (),
+            Mapping::Handler { handler, offset } => {
                 let final_addr = addr as usize % PAGESIZE + *offset;
 
                 // this little dance allows a write handler (namely sxrom's) to remap memory
@@ -95,7 +80,7 @@ impl MemBus {
 
                 handler.borrow_mut().write(final_addr as u16, val);
             }
-            WriteMapping::Data { mem, start } => {
+            Mapping::Data { mem, start } => {
                 let final_addr = addr as usize % PAGESIZE + *start;
                 mem.borrow_mut().set(final_addr, val);
             }
@@ -104,28 +89,28 @@ impl MemBus {
 
     #[allow(dead_code)]
     pub fn clear_page(&self, pagenum: usize) {
-        self.read_mappings.borrow_mut()[pagenum] = ReadMapping::Unmapped;
-        self.write_mappings.borrow_mut()[pagenum] = WriteMapping::Unmapped;
+        self.read_mappings.borrow_mut()[pagenum] = Mapping::Unmapped;
+        self.write_mappings.borrow_mut()[pagenum] = Mapping::Unmapped;
     }
 
     pub fn set_read_memory(&self, pagenum: usize, mem: &R<Memory>, start: usize) {
         let mem = mem.clone();
-        self.read_mappings.borrow_mut()[pagenum] = ReadMapping::Data { mem, start };
+        self.read_mappings.borrow_mut()[pagenum] = Mapping::Data { mem, start };
     }
 
     pub fn set_write_memory(&self, pagenum: usize, mem: &R<Memory>, start: usize) {
         let mem = mem.clone();
-        self.write_mappings.borrow_mut()[pagenum] = WriteMapping::Data { mem, start };
+        self.write_mappings.borrow_mut()[pagenum] = Mapping::Data { mem, start };
     }
 
     pub fn set_read_handler(&self, pagenum: usize, handler: &R<impl MemRead>, offset: usize) {
         let handler = handler.clone();
-        self.read_mappings.borrow_mut()[pagenum] = ReadMapping::Handler { handler, offset };
+        self.read_mappings.borrow_mut()[pagenum] = Mapping::Handler { handler, offset };
     }
 
     pub fn set_write_handler(&self, pagenum: usize, handler: &R<impl MemWrite>, offset: usize) {
         let handler = handler.clone();
-        self.write_mappings.borrow_mut()[pagenum] = WriteMapping::Handler { handler, offset };
+        self.write_mappings.borrow_mut()[pagenum] = Mapping::Handler { handler, offset };
     }
 }
 
