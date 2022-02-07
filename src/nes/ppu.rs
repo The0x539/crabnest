@@ -632,7 +632,7 @@ impl Ppu {
         cpu.tk.borrow_mut().add_timer(ppu.clone());
 
         // originally part of a `map` method; refactored
-        let bus = cpu.bus.borrow();
+        let mut bus = cpu.bus.borrow_mut();
         for i in 0x20..0x40 {
             bus.set_read_handler(i, &ppu, 0);
             bus.set_write_handler(i, &ppu, 0);

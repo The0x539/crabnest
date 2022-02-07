@@ -104,7 +104,7 @@ fn setup_common(
 ) -> io::Result<R<Ppu>> {
     {
         let cpu_ref = cpu.borrow();
-        let bus = &*cpu_ref.bus.borrow();
+        let bus = &mut *cpu_ref.bus.borrow_mut();
 
         let ram = Memory::new(rm, 0x0800, true);
         Memory::map(&ram, bus, 0x0000, ram.borrow().size() as u16, 0x0000);
@@ -118,7 +118,7 @@ fn setup_common(
 
     let apu = Apu::new(sdl, rm, cpu);
 
-    crate::nes::pageforty::setup(&*cpu.borrow().bus.borrow(), io_reg, apu);
+    crate::nes::pageforty::setup(&mut *cpu.borrow().bus.borrow_mut(), io_reg, apu);
 
     let ppu = Ppu::new(sdl, rm, cpu, event_pump, scale);
 

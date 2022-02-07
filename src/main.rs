@@ -40,7 +40,7 @@ fn hawknest_rom_load(
     cpu.borrow_mut().paravirt = true;
 
     let cpu = cpu.borrow();
-    let bus = &*cpu.bus.borrow();
+    let bus = &mut *cpu.bus.borrow_mut();
 
     let cartrom = Memory::new(rm, 0x6000, false);
     f.read_exact(&mut cartrom.borrow_mut().bytes)?;

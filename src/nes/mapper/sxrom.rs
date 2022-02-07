@@ -96,31 +96,31 @@ pub fn setup(info: RomInfo) -> Result<(), &'static str> {
     }
 
     let cpu = cpu.borrow();
-    let cpu_bus = cpu.bus.borrow_mut();
+    let cpu_bus = &mut *cpu.bus.borrow_mut();
 
     if let Some(prg_ram) = &prg_ram {
-        Memory::map(prg_ram, &cpu_bus, 0x6000, 0x2000, 0);
+        Memory::map(prg_ram, cpu_bus, 0x6000, 0x2000, 0);
     }
 
     // TODO: actual default bank selections
 
     let prg_sels: [BankSel; 2] = Default::default();
-    Memory::map_switchable(&prg_rom, &cpu_bus, 0x8000, 0x4000, &prg_sels[0]);
-    Memory::map_switchable(&prg_rom, &cpu_bus, 0xC000, 0x4000, &prg_sels[1]);
+    Memory::map_switchable(&prg_rom, cpu_bus, 0x8000, 0x4000, &prg_sels[0]);
+    Memory::map_switchable(&prg_rom, cpu_bus, 0xC000, 0x4000, &prg_sels[1]);
 
     let ppu = ppu.borrow();
-    let ppu_bus = ppu.bus.borrow();
+    let ppu_bus = &mut *ppu.bus.borrow_mut();
 
     let chr_sels: [BankSel; 2] = Default::default();
-    Memory::map_switchable(&chr, &ppu_bus, 0x0000, 0x1000, &chr_sels[0]);
-    Memory::map_switchable(&chr, &ppu_bus, 0x1000, 0x1000, &chr_sels[1]);
+    Memory::map_switchable(&chr, ppu_bus, 0x0000, 0x1000, &chr_sels[0]);
+    Memory::map_switchable(&chr, ppu_bus, 0x1000, 0x1000, &chr_sels[1]);
 
     // TODO: I don't think this necessarily belongs in mapper specific code
     let vram_sels: [BankSel; 4] = Default::default();
-    Memory::map_switchable(&vram, &ppu_bus, 0x2000, 0x0400, &vram_sels[0]);
-    Memory::map_switchable(&vram, &ppu_bus, 0x2400, 0x0400, &vram_sels[1]);
-    Memory::map_switchable(&vram, &ppu_bus, 0x2800, 0x0400, &vram_sels[2]);
-    Memory::map_switchable(&vram, &ppu_bus, 0x2C00, 0x0400, &vram_sels[3]);
+    Memory::map_switchable(&vram, ppu_bus, 0x2000, 0x0400, &vram_sels[0]);
+    Memory::map_switchable(&vram, ppu_bus, 0x2400, 0x0400, &vram_sels[1]);
+    Memory::map_switchable(&vram, ppu_bus, 0x2800, 0x0400, &vram_sels[2]);
+    Memory::map_switchable(&vram, ppu_bus, 0x2C00, 0x0400, &vram_sels[3]);
 
     let cart = r(SxRom {
         mmc1: Mmc1::default(),

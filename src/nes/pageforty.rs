@@ -7,7 +7,7 @@ pub struct PageForty {
     pub apu: R<Apu>,
 }
 
-pub fn setup(bus: &MemBus, io_reg: R<IoReg>, apu: R<Apu>) {
+pub fn setup(bus: &mut MemBus, io_reg: R<IoReg>, apu: R<Apu>) {
     let pf = r(PageForty { io_reg, apu });
     bus.set_read_handler(0x40, &pf, 0);
     bus.set_write_handler(0x40, &pf, 0);
