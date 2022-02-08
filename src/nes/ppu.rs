@@ -354,6 +354,12 @@ impl PpuState {
         }
     }
 
+    fn sprite_in_range(&self, sprite: &Sprite) -> bool {
+        let top = sprite.ypos as usize;
+        let bottom = top + self.flags.sprite_size().height() as usize;
+        (top..bottom).contains(&self.slnum)
+    }
+
     fn spriteeval(&mut self) {
         if !(self.mask.bg_en() || self.mask.sprite_en()) || self.dotnum != 0 || self.slnum >= 240 {
             return;
@@ -366,17 +372,10 @@ impl PpuState {
             .set_scanline_has_sprite0(self.flags.next_scanline_has_sprite0());
         self.flags.set_next_scanline_has_sprite0(false);
 
-        let sprite_height = self.flags.sprite_size().height();
-
         let mut sprites = self.sprites.iter().enumerate();
 
         for (i, sprite) in sprites.by_ref() {
-            if self.eval_nsprites == 8 {
-                break;
-            }
-            if self.slnum < sprite.ypos as usize
-                || self.slnum >= (sprite.ypos + sprite_height) as usize
-            {
+            if !self.sprite_in_range(sprite) {
                 continue;
             }
 
@@ -386,12 +385,14 @@ impl PpuState {
 
             self.eval_sprites[self.eval_nsprites as usize] = *sprite;
             self.eval_nsprites += 1;
+
+            if self.eval_nsprites == 8 {
+                break;
+            }
         }
 
         for (i, sprite) in sprites {
-            if self.slnum >= sprite.ypos as usize
-                || self.slnum < (sprite.ypos + sprite_height) as usize
-            {
+            if self.sprite_in_range(sprite) {
                 self.overflow_dotnum = 8 * 8 + (i + 1 - 8) * 2;
                 break;
             }
