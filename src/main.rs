@@ -43,10 +43,10 @@ fn hawknest_rom_load(
 
     let cartrom = Memory::new(rm, 0x6000, false);
     f.read_exact(&mut cartrom.borrow_mut().bytes)?;
-    Memory::map(&cartrom, bus, 0xA000, 0x6000, 0);
+    Memory::map(&cartrom, bus, 0xA000..=0xFFFF, 0);
 
-    let ram = Memory::new(rm, 32768, true);
-    Memory::map(&ram, bus, 0, 32768, 0);
+    let ram = Memory::new(rm, 0x8000, true);
+    Memory::map(&ram, bus, 0x0000..=0x7FFF, 0);
 
     Ok(())
 }

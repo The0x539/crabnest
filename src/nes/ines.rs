@@ -102,14 +102,8 @@ fn setup_common(
     cscheme_path: &Path,
     scale: u32,
 ) -> io::Result<R<Ppu>> {
-    {
-        let bus = &mut *cpu.bus.borrow_mut();
-
-        let ram = Memory::new(rm, 0x0800, true);
-        Memory::map(&ram, bus, 0x0000, ram.borrow().size() as u16, 0x0000);
-
-        Memory::map_mirroring(&ram, bus, 0x0800, 0x0800, 0x0000, 3);
-    }
+    let ram = Memory::new(rm, 0x0800, true);
+    Memory::map_mirroring(&ram, &mut *cpu.bus.borrow_mut(), 0x0000..=0x1FFF);
 
     let event_pump = r(sdl.event_pump().expect("Could not set up event pump"));
 
