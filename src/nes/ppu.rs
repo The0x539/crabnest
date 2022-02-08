@@ -354,8 +354,8 @@ impl PpuState {
         }
     }
 
-    fn sprite_in_range(&self, sprite: &Sprite) -> bool {
-        let top = sprite.ypos as usize;
+    fn sprite_in_range(&self, ypos: u8) -> bool {
+        let top = ypos as usize;
         let bottom = top + self.flags.sprite_size().height() as usize;
         (top..bottom).contains(&self.slnum)
     }
@@ -365,37 +365,44 @@ impl PpuState {
             return;
         }
 
+        let mut cycles = 0;
+
         bytemuck::bytes_of_mut(&mut self.eval_sprites).fill(0xFF);
         self.eval_nsprites = 0;
+
+        cycles += 64;
 
         self.flags
             .set_scanline_has_sprite0(self.flags.next_scanline_has_sprite0());
         self.flags.set_next_scanline_has_sprite0(false);
 
-        let mut sprites = self.sprites.iter().enumerate();
+        let mut n = 0;
+        while n < 64 && self.eval_nsprites < 8 {
+            cycles += 2;
+            let sprite = &self.sprites[n];
+            if self.sprite_in_range(sprite.ypos) {
+                cycles += 6;
+                if n == 0 {
+                    self.flags.set_next_scanline_has_sprite0(true);
+                }
 
-        for (i, sprite) in sprites.by_ref() {
-            if !self.sprite_in_range(sprite) {
-                continue;
+                self.eval_sprites[self.eval_nsprites as usize] = *sprite;
+                self.eval_nsprites += 1;
             }
-
-            if i == 0 {
-                self.flags.set_next_scanline_has_sprite0(true);
-            }
-
-            self.eval_sprites[self.eval_nsprites as usize] = *sprite;
-            self.eval_nsprites += 1;
-
-            if self.eval_nsprites == 8 {
-                break;
-            }
+            n += 1;
         }
 
-        for (i, sprite) in sprites {
-            if self.sprite_in_range(sprite) {
-                self.overflow_dotnum = 8 * 8 + (i + 1 - 8) * 2;
+        let mut m = 0;
+        while n < 64 {
+            cycles += 2;
+            let ypos = self.oam()[4 * n + m];
+            if self.sprite_in_range(ypos) {
+                self.overflow_dotnum = cycles;
                 break;
+            } else {
+                m = (m + 1) % 4;
             }
+            n += 1;
         }
     }
 
