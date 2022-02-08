@@ -115,7 +115,7 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
 
     // TODO: I don't think this necessarily belongs in mapper specific code
     let vram_sels: [BankSel; 4] = Default::default();
-    vram_sels[1 + mirroring as usize].set(0x0400);
+    vram_sels[2 - mirroring as usize].set(0x0400);
     vram_sels[3].set(0x0400);
     vram.map_switchable(ppu_bus, 0x2000..=0x23FF, &vram_sels[0]);
     vram.map_switchable(ppu_bus, 0x2400..=0x28FF, &vram_sels[1]);
