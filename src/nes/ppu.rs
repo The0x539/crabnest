@@ -807,6 +807,8 @@ impl Ppu {
             mmc3.counter -= 1;
         }
 
+        mmc3.reload = false;
+
         if mmc3.counter == 0 && mmc3.enabled {
             mmc3.line.raise();
         }
