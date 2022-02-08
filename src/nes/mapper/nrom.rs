@@ -3,7 +3,7 @@ use crate::nes::ines::{Mirroring, RomInfo};
 pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
     if !matches!(
         info.prg_ram.as_ref().map(|r| r.size()),
-        None | Some(0x0800) | Some(0x1000),
+        None | Some(0x0800 | 0x1000 | 0x2000),
     ) {
         return Err("ROM has invalid PRG-RAM configuration");
     }
@@ -31,7 +31,7 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
     let ppu = info.ppu.borrow();
     let p_bus = &mut *ppu.bus.borrow_mut();
 
-    info.chr.map(p_bus, 0..=info.chr.size() as u16, 0);
+    info.chr.map(p_bus, 0..=(info.chr.size() - 1) as u16, 0);
 
     let (a, b, c, d) = match info.mirroring {
         Mirroring::Horizontal => (0, 0, 0x0400, 0x0400),
