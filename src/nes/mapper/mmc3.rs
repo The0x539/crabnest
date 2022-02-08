@@ -168,8 +168,8 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
 
     let chr_sels: [BankSel; 8] = Default::default();
     for i in 0..8 {
-        let start = i * 0x0800;
-        let end = start + 0x07FF;
+        let start = i * 0x0400;
+        let end = start + 0x03FF;
         chr.map_switchable(&mut ppu_bus, start..=end, &chr_sels[i as usize]);
     }
 
