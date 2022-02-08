@@ -247,6 +247,7 @@ pub struct PpuState {
     vram_addr: PpuVramAddr,
     vram_read_buf: u8,
     tmp_vram_addr: PpuVramAddr,
+    vram_addr_bus: u16,
 
     fine_xscroll: u8,
 
@@ -275,6 +276,10 @@ pub struct PpuState {
 }
 
 impl PpuState {
+    fn render_disabled(&self) -> bool {
+        !self.mask.bg_en() && !self.mask.sprite_en()
+    }
+
     fn set_delayed_regs(&mut self) {
         let fl = &mut self.flags;
         if fl.sprite0_hit_shouldset() {
@@ -288,8 +293,8 @@ impl PpuState {
     }
 
     fn clear_regs(&mut self) {
-        let fl = &mut self.flags;
-        if self.dotnum == 2 && self.slnum == 261 {
+        if self.dotnum == 1 && self.slnum == 261 {
+            let fl = &mut self.flags;
             fl.set_sprite0_hit(false);
             fl.set_sprite0_hit_shouldset(false);
             fl.set_sprite_overflow(false);
@@ -300,7 +305,7 @@ impl PpuState {
 
     fn shift_shiftregs(&mut self) {
         match self.dotnum {
-            2..=257 | 322..=337 => (),
+            1..=256 | 321..=336 => (),
             _ => return,
         }
 
@@ -316,9 +321,8 @@ impl PpuState {
 
     fn load_shiftregs(&mut self) {
         match self.dotnum {
-            1 | 321 | 257..=320 => return,
-            x if x.wrapping_sub(1) % 8 != 0 => return,
-            _ => (),
+            n @ (9..=257 | 329..=337) if n % 8 == 1 => (),
+            _ => return,
         }
 
         self.bg_bmp_shiftregs[0] &= 0xFF00;
@@ -327,8 +331,11 @@ impl PpuState {
         self.bg_bmp_shiftregs[0] |= self.bmp_latch[0] as u16;
         self.bg_bmp_shiftregs[1] |= self.bmp_latch[1] as u16;
 
-        let attr_x = (self.vram_addr.coarse_xscroll() / 2) % 2;
-        let attr_y = (self.vram_addr.coarse_yscroll() / 2) % 2;
+        let mut v = self.vram_addr.clone();
+        v.set(self.vram_addr_bus);
+
+        let attr_x = (v.coarse_xscroll() / 2) % 2;
+        let attr_y = (v.coarse_yscroll() / 2) % 2;
         let attr_idx = attr_y * 2 + attr_x;
         let attr_shift = attr_idx * 2;
 
@@ -336,24 +343,20 @@ impl PpuState {
     }
 
     fn update_vram_addr(&mut self) {
-        if !(self.mask.bg_en() || self.mask.sprite_en()) {
+        if self.render_disabled() {
             return;
         }
 
-        if self.slnum < 240 {
-            if !(258..=327).contains(&self.dotnum)
-                && self.dotnum != 1
-                && self.dotnum.wrapping_sub(1) % 8 == 0
-            {
+        match self.dotnum {
+            n @ (1..=256 | 321..=336) if n % 8 == 0 => {
                 self.vram_addr.inc_coarse_x();
-                if self.dotnum == 257 {
+                if n == 256 {
                     self.vram_addr.inc_y();
                 }
-            } else if self.dotnum == 258 {
-                self.vram_addr.copy_h(self.tmp_vram_addr);
             }
-        } else if self.slnum == 261 && (280..=304).contains(&self.dotnum) {
-            self.vram_addr.copy_v(self.tmp_vram_addr);
+            257 => self.vram_addr.copy_h(self.tmp_vram_addr),
+            280..=304 if self.slnum == 261 => self.vram_addr.copy_v(self.tmp_vram_addr),
+            _ => (),
         }
     }
 
@@ -364,7 +367,7 @@ impl PpuState {
     }
 
     fn spriteeval(&mut self) {
-        if !(self.mask.bg_en() || self.mask.sprite_en()) || self.dotnum != 0 || self.slnum >= 240 {
+        if self.render_disabled() || self.dotnum != 0 || matches!(self.slnum, 240..=260) {
             return;
         }
 
@@ -412,7 +415,7 @@ impl PpuState {
     fn draw_pixel(&mut self) -> Option<u16> {
         let m = &self.mask;
 
-        if !(m.bg_en() || m.sprite_en()) || !(1..=256).contains(&self.dotnum) || self.slnum >= 240 {
+        if self.render_disabled() || !(1..=256).contains(&self.dotnum) || self.slnum >= 240 {
             return None;
         }
 
@@ -483,28 +486,24 @@ impl PpuState {
     }
 
     fn move_cursor(&mut self) {
-        let sl_length = if self.slnum == 261
-            && self.framenum % 2 != 0
-            && (self.mask.bg_en() || self.mask.sprite_en())
-        {
-            340
-        } else {
-            341
-        };
-
         self.dotnum += 1;
-        if self.dotnum != sl_length {
+        if self.dotnum <= 340 {
             return;
         }
         self.dotnum = 0;
 
         self.slnum += 1;
-        if self.slnum != 262 {
+        if self.slnum <= 261 {
             return;
         }
         self.slnum = 0;
 
         self.framenum += 1;
+
+        if self.framenum % 2 == 1 && self.mask.bg_en() {
+            // If the background is enabled, skip the first tick of the first scanline of odd frames
+            self.dotnum += 1;
+        }
     }
 
     fn palette_loc(&self, addr: u16) -> Option<&u8> {
@@ -544,16 +543,16 @@ impl PpuState {
     }
 
     fn inc_vram_addr_rw(&mut self) {
-        if !(self.mask.bg_en() || self.mask.sprite_en()) || (self.slnum >= 240 && self.slnum != 261)
-        {
+        if self.render_disabled() || matches!(self.slnum, 240..=260) {
             let mut vra = self.vram_addr.to_u16();
             vra += self.flags.vram_addr_inc().amount();
             vra %= 0x4000;
             self.vram_addr.set(vra);
-            return;
+        } else {
+            self.vram_addr.inc_coarse_x();
+            self.vram_addr.inc_y();
         }
-        self.vram_addr.inc_coarse_x();
-        self.vram_addr.inc_y();
+        //self.vram_addr_bus = self.vram_addr.to_u16();
     }
 
     fn nt_addr(&self) -> u16 {
@@ -675,50 +674,55 @@ impl Ppu {
             Some(c) => c as usize,
             None => return,
         };
+
         let pixdata = [
             self.state.palette_srgb[pixel_color][0],
             self.state.palette_srgb[pixel_color][1],
             self.state.palette_srgb[pixel_color][2],
             255,
         ];
-        let x = self.state.dotnum as usize - 1;
-        let y = self.state.slnum as usize;
+        let x = self.state.dotnum - 1;
+        let y = self.state.slnum;
         self.sdl.with_buf_mut(|buf| buf[y][x] = pixdata);
     }
 
     fn memfetch(&mut self) {
-        if !(self.state.mask.bg_en() || self.state.mask.sprite_en())
-            || (self.state.slnum >= 240 && self.state.slnum != 261)
-        {
+        if self.state.render_disabled() || matches!(self.state.slnum, 240..=260) {
             return;
         }
-        self.bg_memfetch();
-        self.sprite_memfetch();
-        self.dummy_memfetch();
+
+        match self.state.dotnum {
+            0 => self.dummy_memfetch(),
+            1..=256 => self.bg_memfetch(),
+            257..=320 => self.sprite_memfetch(),
+            321..=336 => self.bg_memfetch(),
+            337..=340 => self.mysterious_memfetch(),
+            341.. | _ => panic!(),
+        }
+    }
+
+    fn dummy_memfetch(&mut self) {
+        //self.state.vram_addr_bus = self.state.vram_addr.to_u16();
     }
 
     fn bg_memfetch(&mut self) {
-        if !matches!(self.state.dotnum, 1..=256 | 321..=336) {
-            return;
+        let st = &mut self.state;
+        let bus = self.bus.borrow();
+        match (st.dotnum - 1) % 8 {
+            0 => st.vram_addr_bus = st.nt_addr(),
+            1 => st.nt_latch = bus.read(st.vram_addr_bus),
+            2 => st.vram_addr_bus = st.attr_addr(),
+            3 => st.attr_latch = bus.read(st.vram_addr_bus),
+            4 => st.vram_addr_bus = st.bg_bmp_addr(),
+            5 => st.bmp_latch[0] = bus.read(st.vram_addr_bus),
+            6 => st.vram_addr_bus = st.bg_bmp_addr() + 8,
+            7 => st.bmp_latch[1] = bus.read(st.vram_addr_bus),
+            _ => unreachable!(),
         }
-
-        let (src, dst) = match (self.state.dotnum - 1) % 8 {
-            1 => (self.state.nt_addr(), &mut self.state.nt_latch),
-            3 => (self.state.attr_addr(), &mut self.state.attr_latch),
-            5 => (self.state.bg_bmp_addr(), &mut self.state.bmp_latch[0]),
-            7 => (self.state.bg_bmp_addr() + 8, &mut self.state.bmp_latch[1]),
-            _ => return,
-        };
-
-        *dst = self.bus.borrow().read(src);
     }
 
     fn sprite_memfetch(&mut self) {
         let st = &mut self.state;
-
-        if !matches!(st.dotnum, 257..=320) {
-            return;
-        }
 
         let spritenum = (st.dotnum - 257) / 8;
         let sprite = st.eval_sprites[spritenum];
@@ -750,15 +754,12 @@ impl Ppu {
 
         let bus = self.bus.borrow();
         match (st.dotnum - 1) % 8 {
-            1 => {
-                bus.read(st.nt_addr());
-            }
-            3 => {
-                bus.read(st.attr_addr());
-            }
+            0 | 2 => st.vram_addr_bus = st.nt_addr(),
+            1 | 3 => drop(bus.read(st.vram_addr_bus)),
+            4 => st.vram_addr_bus = bmp_addr,
             5 => {
                 let shiftreg = &mut st.sprite_bmp_shiftregs[spritenum][0];
-                *shiftreg = bus.read(bmp_addr);
+                *shiftreg = bus.read(st.vram_addr_bus);
                 if sprite.attr.horiz_flipped() {
                     *shiftreg = shiftreg.reverse_bits();
                 }
@@ -766,9 +767,10 @@ impl Ppu {
                     *shiftreg = 0;
                 }
             }
+            6 => st.vram_addr_bus = bmp_addr + 8,
             7 => {
                 let shiftreg = &mut st.sprite_bmp_shiftregs[spritenum][1];
-                *shiftreg = bus.read(bmp_addr + 8);
+                *shiftreg = bus.read(st.vram_addr_bus);
                 if sprite.attr.horiz_flipped() {
                     *shiftreg = shiftreg.reverse_bits();
                 }
@@ -779,15 +781,20 @@ impl Ppu {
                 st.sprite_xs[spritenum] = sprite.xpos;
                 st.sprite_attrs[spritenum] = sprite.attr;
             }
-            _ => (),
+            _ => unreachable!(),
         }
     }
 
-    fn dummy_memfetch(&mut self) {
-        // "todo"
+    fn mysterious_memfetch(&mut self) {
+        let st = &mut self.state;
+        match (st.dotnum - 1) % 4 {
+            0 | 2 => st.vram_addr_bus = st.nt_addr(),
+            1 | 3 => drop(self.bus.borrow().read(st.vram_addr_bus)),
+            _ => unreachable!(),
+        }
     }
 
-    fn vram_addr_updated(&mut self) {
+    fn update_a12(&mut self) {
         let mut mmc3 = match &self.mmc3_irq {
             Some(x) => x.borrow_mut(),
             None => return,
@@ -795,8 +802,8 @@ impl Ppu {
 
         let state = &self.state;
 
-        let frame_cycle = ((state.slnum + 1) * 341) + state.dotnum;
-        let vram_addr = state.vram_addr.to_u16();
+        let frame_cycle = (state.slnum * 341) + state.dotnum;
+        let vram_addr = state.vram_addr_bus;
         if mmc3.a12_watcher.update_vram_addr(vram_addr, frame_cycle) != Edge::Rising {
             return;
         }
@@ -860,10 +867,10 @@ impl Timed for Ppu {
         self.state.clear_regs();
 
         self.memfetch();
+        self.update_a12();
+        self.state.update_vram_addr();
         self.state.shift_shiftregs();
         self.state.load_shiftregs();
-        self.state.update_vram_addr();
-        self.vram_addr_updated();
         self.state.spriteeval();
 
         self.draw_pixel();
@@ -993,30 +1000,26 @@ impl MemWrite for Ppu {
 
             5 => {
                 // PPUSCROLL
-                if !state.flags.write_toggle() {
+                state.flags.set_write_toggle(!state.flags.write_toggle());
+                if state.flags.write_toggle() {
                     state.tmp_vram_addr.set_coarse_xscroll(val >> 3);
                     state.fine_xscroll = val & 0x7;
                 } else {
                     state.tmp_vram_addr.set_fine_yscroll(val & 0x7);
                     state.tmp_vram_addr.set_coarse_yscroll(val >> 3);
                 }
-                state.flags.set_write_toggle(!state.flags.write_toggle());
             }
 
             6 => {
                 // PPUADDR
-                let updated;
-                if !state.flags.write_toggle() {
+                state.flags.set_write_toggle(!state.flags.write_toggle());
+                if state.flags.write_toggle() {
                     state.tmp_vram_addr.bytes[1] = val & 0x3F;
-                    updated = false;
                 } else {
                     state.tmp_vram_addr.bytes[0] = val;
                     state.vram_addr = state.tmp_vram_addr;
-                    updated = true;
-                }
-                state.flags.set_write_toggle(!state.flags.write_toggle());
-                if updated {
-                    self.vram_addr_updated();
+                    state.vram_addr_bus = state.vram_addr.to_u16();
+                    self.update_a12();
                 }
             }
 
