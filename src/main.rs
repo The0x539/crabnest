@@ -32,7 +32,7 @@ const HAWKNEST_MAGIC: [u8; 4] = [b'H', b'K', b'N', b'S'];
 const INES_MAGIC: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
 
 fn hawknest_rom_load(
-    mut f: File,
+    f: File,
     _path: &Path,
     rm: &R<ResetManager>,
     cpu: &mut Mos6502,
@@ -41,12 +41,12 @@ fn hawknest_rom_load(
 
     let bus = &mut *cpu.bus.borrow_mut();
 
-    let cartrom = Memory::new(rm, 0x6000, false);
-    f.read_exact(&mut cartrom.borrow_mut().bytes)?;
-    Memory::map(&cartrom, bus, 0xA000..=0xFFFF, 0);
+    let mut cartrom = Memory::new(rm, 0x6000, false);
+    cartrom.populate(f)?;
+    cartrom.map(bus, 0xA000..=0xFFFF, 0);
 
     let ram = Memory::new(rm, 0x8000, true);
-    Memory::map(&ram, bus, 0x0000..=0x7FFF, 0);
+    ram.map(bus, 0x0000..=0x7FFF, 0);
 
     Ok(())
 }

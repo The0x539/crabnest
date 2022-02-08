@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use crate::memory::Memory;
+use crate::memory::MemInner;
 use crate::reset_manager::{Reset, ResetManager};
 use crate::{r, R};
 
@@ -25,11 +25,11 @@ enum Mapping<H: ?Sized> {
         offset: usize,
     },
     Data {
-        mem: R<Memory>,
+        mem: R<MemInner>,
         start: usize,
     },
     Bank {
-        mem: R<Memory>,
+        mem: R<MemInner>,
         start: usize,
         sel: BankSel,
     },
@@ -109,13 +109,11 @@ impl MemBus {
         self.write_mappings[pagenum] = Mapping::Unmapped;
     }
 
-    pub fn set_read_memory(&mut self, pagenum: usize, mem: &R<Memory>, start: usize) {
-        let mem = mem.clone();
+    pub fn set_read_memory(&mut self, pagenum: usize, mem: R<MemInner>, start: usize) {
         self.read_mappings[pagenum] = Mapping::Data { mem, start };
     }
 
-    pub fn set_write_memory(&mut self, pagenum: usize, mem: &R<Memory>, start: usize) {
-        let mem = mem.clone();
+    pub fn set_write_memory(&mut self, pagenum: usize, mem: R<MemInner>, start: usize) {
         self.write_mappings[pagenum] = Mapping::Data { mem, start };
     }
 
@@ -129,15 +127,11 @@ impl MemBus {
         self.write_mappings[pagenum] = Mapping::Handler { handler, offset };
     }
 
-    pub fn set_read_bank(&mut self, pagenum: usize, mem: &R<Memory>, start: usize, sel: &BankSel) {
-        let mem = mem.clone();
-        let sel = sel.clone();
+    pub fn set_read_bank(&mut self, pagenum: usize, mem: R<MemInner>, start: usize, sel: BankSel) {
         self.read_mappings[pagenum] = Mapping::Bank { mem, start, sel };
     }
 
-    pub fn set_write_bank(&mut self, pagenum: usize, mem: &R<Memory>, start: usize, sel: &BankSel) {
-        let mem = mem.clone();
-        let sel = sel.clone();
+    pub fn set_write_bank(&mut self, pagenum: usize, mem: R<MemInner>, start: usize, sel: BankSel) {
         self.write_mappings[pagenum] = Mapping::Bank { mem, start, sel };
     }
 }

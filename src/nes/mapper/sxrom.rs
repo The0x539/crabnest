@@ -1,6 +1,5 @@
 use crate::{
     membus::{BankSel, MemWrite},
-    memory::Memory,
     mos6502, r,
     reset_manager::Reset,
     timekeeper::Timekeeper,
@@ -83,43 +82,43 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
         prg_nvram: _,
     } = info;
 
-    if prg_rom.borrow().size() % 0x4000 != 0 {
+    if prg_rom.size() % 0x4000 != 0 {
         return Err("ROM's PRGROM size is not a multiple of 16384");
     }
 
-    if chr.borrow().size() % 0x2000 != 0 {
+    if chr.size() % 0x2000 != 0 {
         return Err("ROM's CHR size is not a multiple of 8192");
     }
 
-    if vram.borrow().size() != 0x0800 {
+    if vram.size() != 0x0800 {
         return Err("ROM's VRAM size is not 2048");
     }
 
     let cpu_bus = &mut *cpu.bus.borrow_mut();
 
     if let Some(prg_ram) = &prg_ram {
-        Memory::map(prg_ram, cpu_bus, 0x6000..=0x7FFF, 0);
+        prg_ram.map(cpu_bus, 0x6000..=0x7FFF, 0);
     }
 
     // TODO: actual default bank selections
 
     let prg_sels: [BankSel; 2] = Default::default();
-    Memory::map_switchable(&prg_rom, cpu_bus, 0x8000..=0xBFFF, &prg_sels[0]);
-    Memory::map_switchable(&prg_rom, cpu_bus, 0xC000..=0xFFFF, &prg_sels[1]);
+    prg_rom.map_switchable(cpu_bus, 0x8000..=0xBFFF, &prg_sels[0]);
+    prg_rom.map_switchable(cpu_bus, 0xC000..=0xFFFF, &prg_sels[1]);
 
     let ppu = ppu.borrow();
     let ppu_bus = &mut *ppu.bus.borrow_mut();
 
     let chr_sels: [BankSel; 2] = Default::default();
-    Memory::map_switchable(&chr, ppu_bus, 0x0000..=0x0FFF, &chr_sels[0]);
-    Memory::map_switchable(&chr, ppu_bus, 0x1000..=0x1FFF, &chr_sels[1]);
+    chr.map_switchable(ppu_bus, 0x0000..=0x0FFF, &chr_sels[0]);
+    chr.map_switchable(ppu_bus, 0x1000..=0x1FFF, &chr_sels[1]);
 
     // TODO: I don't think this necessarily belongs in mapper specific code
     let vram_sels: [BankSel; 4] = Default::default();
-    Memory::map_switchable(&vram, ppu_bus, 0x2000..=0x23FF, &vram_sels[0]);
-    Memory::map_switchable(&vram, ppu_bus, 0x2400..=0x28FF, &vram_sels[1]);
-    Memory::map_switchable(&vram, ppu_bus, 0x2800..=0x2CFF, &vram_sels[2]);
-    Memory::map_switchable(&vram, ppu_bus, 0x2C00..=0x2FFF, &vram_sels[3]);
+    vram.map_switchable(ppu_bus, 0x2000..=0x23FF, &vram_sels[0]);
+    vram.map_switchable(ppu_bus, 0x2400..=0x28FF, &vram_sels[1]);
+    vram.map_switchable(ppu_bus, 0x2800..=0x2CFF, &vram_sels[2]);
+    vram.map_switchable(ppu_bus, 0x2C00..=0x2FFF, &vram_sels[3]);
 
     let cart = r(SxRom {
         mmc1: Mmc1::default(),
@@ -128,8 +127,8 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
         vram_sels,
         chr_sels,
 
-        prg_rom_size: prg_rom.borrow().size(),
-        chr_size: chr.borrow().size(),
+        prg_rom_size: prg_rom.size(),
+        chr_size: chr.size(),
 
         tk: cpu.tk.clone(),
     });

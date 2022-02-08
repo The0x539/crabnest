@@ -21,11 +21,11 @@ pub struct RomInfo<'a> {
     pub ppu: R<Ppu>,
     pub mirroring: Mirroring,
 
-    pub prg_rom: R<Memory>,
-    pub prg_ram: Option<R<Memory>>,
-    pub prg_nvram: Option<R<Memory>>,
-    pub chr: R<Memory>,
-    pub vram: R<Memory>,
+    pub prg_rom: Memory,
+    pub prg_ram: Option<Memory>,
+    pub prg_nvram: Option<Memory>,
+    pub chr: Memory,
+    pub vram: Memory,
 }
 
 pub fn rom_load(
@@ -55,15 +55,15 @@ pub fn rom_load(
         }
     };
 
-    let prg_rom = mem(header.prg_rom_size(), false).unwrap();
+    let mut prg_rom = Memory::new(rm, header.prg_rom_size(), false);
     let prg_ram = mem(header.prg_ram_size(), true);
     let prg_nvram = mem(header.prg_nvram_size(), true);
 
-    f.read_exact(&mut prg_rom.borrow_mut().bytes)?;
+    prg_rom.populate(&mut f)?;
 
     let chr = if header.chr_rom_size() != 0 {
-        let rom = Memory::new(rm, header.chr_rom_size(), false);
-        f.read_exact(&mut rom.borrow_mut().bytes)?;
+        let mut rom = Memory::new(rm, header.chr_rom_size(), false);
+        rom.populate(&mut f)?;
         rom
     } else {
         Memory::new(rm, header.chr_ram_size(), true)
@@ -103,7 +103,7 @@ fn setup_common(
     scale: u32,
 ) -> io::Result<R<Ppu>> {
     let ram = Memory::new(rm, 0x0800, true);
-    Memory::map_mirroring(&ram, &mut *cpu.bus.borrow_mut(), 0x0000..=0x1FFF);
+    ram.map_mirroring(&mut *cpu.bus.borrow_mut(), 0x0000..=0x1FFF);
 
     let event_pump = r(sdl.event_pump().expect("Could not set up event pump"));
 
