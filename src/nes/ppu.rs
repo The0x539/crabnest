@@ -421,10 +421,6 @@ impl PpuState {
         bg_palette |= ((self.bg_attr_shiftregs[0] << self.fine_xscroll) >> 7) & 1;
         bg_palette |= ((self.bg_attr_shiftregs[1] << self.fine_xscroll) >> 6) & 2;
 
-        for x in &mut self.sprite_xs {
-            *x = x.saturating_sub(1);
-        }
-
         let mut sprite_color = 0;
         let mut sprite_palette = 0;
         let mut sprite_behind_bg = false;
@@ -432,6 +428,7 @@ impl PpuState {
 
         for i in 0..8 {
             if self.sprite_xs[i] > 0 {
+                self.sprite_xs[i] -= 1;
                 continue;
             }
 
