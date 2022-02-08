@@ -5,7 +5,7 @@ use modular_bitfield::prelude::*;
 use crate::{
     membus::{BankSel, MemWrite},
     mos6502::IrqLine,
-    nes::ines::RomInfo,
+    nes::{a12_watcher::A12Watcher, ines::RomInfo},
     reset_manager::Reset,
     {r, R},
 };
@@ -60,6 +60,7 @@ pub(in crate::nes) struct Mmc3Irq {
     pub latch: u8,
     pub reload: bool,
     pub enabled: bool,
+    pub a12_watcher: A12Watcher,
 }
 
 impl Mmc3 {
@@ -95,15 +96,15 @@ impl MemWrite for Mmc3 {
     fn write(&mut self, addr: u16, data: u8) {
         let regnum = (addr >> 12 & !1) | (addr & 1);
         match regnum {
-            0x8 => {
+            0 => {
                 self.banksel.bytes[0] = data;
                 self.remap();
             }
-            0x9 => {
+            1 => {
                 self.banksel_regs[self.banksel.reg() as usize] = data;
                 self.remap();
             }
-            0xA => {
+            2 => {
                 if data & 1 == 0 {
                     // horizontal
                     self.vram_sels[1].set(0x0000);
@@ -114,17 +115,17 @@ impl MemWrite for Mmc3 {
                     self.vram_sels[2].set(0x0000);
                 }
             }
-            0xB => {
+            3 => {
                 println!("PRG-RAM protection NYI");
                 self.prg_ram_protection.bytes[0] = data;
             }
-            0xC => self.irq.borrow_mut().latch = data,
-            0xD => self.irq.borrow_mut().reload = true,
-            0xE => {
+            4 => self.irq.borrow_mut().latch = data,
+            5 => self.irq.borrow_mut().reload = true,
+            6 => {
                 self.irq.borrow_mut().line.clear();
                 self.irq.borrow_mut().enabled = false;
             }
-            0xF => self.irq.borrow_mut().enabled = true,
+            7 => self.irq.borrow_mut().enabled = true,
             _ => (),
         }
     }
@@ -195,6 +196,7 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
             latch: 0,
             reload: false,
             enabled: false,
+            a12_watcher: A12Watcher::default(),
         }),
     });
 

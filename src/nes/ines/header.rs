@@ -217,7 +217,7 @@ pub trait Header {
         match (self.chr_rom_size(), self.chr_ram_size()) {
             (0, 0) => e!("ROM has no CHR"),
             (0, _) | (_, 0) => (),
-            (_, _) => e!("Unsupported feature: CHR-ROM + CHR-RAM"),
+            (_, _) => (), //e!("Unsupported feature: CHR-ROM + CHR-RAM"),
         }
 
         Ok(())

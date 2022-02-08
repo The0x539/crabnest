@@ -1,3 +1,4 @@
+mod a12_watcher;
 mod apu;
 pub(super) mod ines;
 mod io_reg;

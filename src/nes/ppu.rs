@@ -16,7 +16,7 @@ use crate::reset_manager::{Reset, ResetManager};
 use crate::timekeeper::Timed;
 use crate::{r, R};
 
-use super::mapper::mmc3::Mmc3Irq;
+use super::{a12_watcher::Edge, mapper::mmc3::Mmc3Irq};
 
 const OUTPUT_WIDTH: u32 = 256;
 const OUTPUT_HEIGHT: u32 = 240;
@@ -787,30 +787,17 @@ impl Ppu {
         // "todo"
     }
 
-    fn update_mmc3_irq(&mut self) {
-        use ChrBaseAddr::*;
-        use SpriteSize::*;
-
+    fn vram_addr_updated(&mut self) {
         let mut mmc3 = match &self.mmc3_irq {
             Some(x) => x.borrow_mut(),
             None => return,
         };
 
-        let fl = &self.state.flags;
-        // TODO: figure out which exact scanlines this should be done with
-        let dotnum = match (
-            fl.sprite_size(),
-            fl.bg_chr_baseaddr(),
-            fl.sprite_chr_baseaddr(),
-        ) {
-            (EightByEight, Addr0000, Addr0000) => return,
-            (EightByEight, Addr0000, Addr1000) => 260,
-            (EightByEight, Addr1000, Addr0000) => 324,
-            (EightByEight, Addr1000, Addr1000) => panic!(),
-            (EightBySixteen, _, _) => todo!(),
-        };
+        let state = &self.state;
 
-        if self.state.dotnum != dotnum || self.state.slnum >= 240 {
+        let frame_cycle = ((state.slnum + 1) * 341) + state.dotnum;
+        let vram_addr = state.vram_addr.to_u16();
+        if mmc3.a12_watcher.update_vram_addr(vram_addr, frame_cycle) != Edge::Rising {
             return;
         }
 
@@ -874,7 +861,7 @@ impl Timed for Ppu {
         self.state.shift_shiftregs();
         self.state.load_shiftregs();
         self.state.update_vram_addr();
-        self.update_mmc3_irq();
+        self.vram_addr_updated();
         self.state.spriteeval();
 
         self.draw_pixel();
@@ -1016,13 +1003,19 @@ impl MemWrite for Ppu {
 
             6 => {
                 // PPUADDR
+                let updated;
                 if !state.flags.write_toggle() {
                     state.tmp_vram_addr.bytes[1] = val & 0x3F;
+                    updated = false;
                 } else {
                     state.tmp_vram_addr.bytes[0] = val;
                     state.vram_addr = state.tmp_vram_addr;
+                    updated = true;
                 }
                 state.flags.set_write_toggle(!state.flags.write_toggle());
+                if updated {
+                    self.vram_addr_updated();
+                }
             }
 
             7 => {
