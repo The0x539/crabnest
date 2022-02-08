@@ -35,11 +35,10 @@ fn hawknest_rom_load(
     mut f: File,
     _path: &Path,
     rm: &R<ResetManager>,
-    cpu: &R<Mos6502>,
+    cpu: &mut Mos6502,
 ) -> io::Result<()> {
-    cpu.borrow_mut().paravirt = true;
+    cpu.paravirt = true;
 
-    let cpu = cpu.borrow();
     let bus = &mut *cpu.bus.borrow_mut();
 
     let cartrom = Memory::new(rm, 0x6000, false);
@@ -56,7 +55,7 @@ fn load_rom(
     path: &Path,
     sdl: &Sdl,
     rm: &R<ResetManager>,
-    cpu: &R<Mos6502>,
+    cpu: &mut Mos6502,
     palette_path: &Path,
     cscheme_path: &Path,
     scale: u32,
@@ -114,22 +113,22 @@ fn main() -> io::Result<()> {
 
     let rm = ResetManager::new();
     let tk = Timekeeper::new(&rm, NES_NTSC_SYSCLK);
-    let cpu = Mos6502::new(&rm, &tk, &[/* TODO: catch the rest of the args */]);
+    let mut cpu = Mos6502::new(&rm, &tk, &[/* TODO: catch the rest of the args */]);
 
     load_rom(
         &args.rom_path,
         &sdl,
         &rm,
-        &cpu,
+        &mut cpu,
         &args.palette,
         &args.cscheme,
         args.scale,
     )?;
 
     rm.borrow_mut().issue_reset();
-    cpu.borrow_mut().reset();
-    cpu.borrow().tk.borrow_mut().pause();
-    shell::run_shell(cpu, args.interactive);
+    cpu.reset();
+    cpu.tk.borrow_mut().pause();
+    shell::run_shell(&mut cpu, args.interactive);
 
     Ok(())
 }

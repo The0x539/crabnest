@@ -69,7 +69,7 @@ impl SxRom {
     }
 }
 
-pub fn setup(info: RomInfo) -> Result<(), &'static str> {
+pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
     let RomInfo {
         rm,
         cpu,
@@ -95,7 +95,6 @@ pub fn setup(info: RomInfo) -> Result<(), &'static str> {
         return Err("ROM's VRAM size is not 2048");
     }
 
-    let cpu = cpu.borrow();
     let cpu_bus = &mut *cpu.bus.borrow_mut();
 
     if let Some(prg_ram) = &prg_ram {

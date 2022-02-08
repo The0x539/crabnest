@@ -7,7 +7,6 @@ use once_cell::sync::Lazy;
 use rustyline::Editor;
 
 use crate::mos6502::{Mos6502, StepResult};
-use crate::R;
 
 const PROMPT_STR: &'static str = "$> ";
 
@@ -82,7 +81,7 @@ enum Cli {
     Disassemble { n: u16, addr: Option<Hex16> },
 }
 
-pub fn run_shell(cpu: R<Mos6502>, interactive: bool) {
+pub fn run_shell(cpu: &mut Mos6502, interactive: bool) {
     #[cfg(unix)]
     signal_hook::flag::register(signal_hook::consts::SIGINT, SIGINT_RECEIVED.clone())
         .expect("Couldn't register a SIGINT handler");
@@ -107,8 +106,6 @@ pub fn run_shell(cpu: R<Mos6502>, interactive: bool) {
     }
 
     let mut breakpoints = BTreeSet::new();
-
-    let cpu = &mut *cpu.borrow_mut();
 
     loop {
         match line.as_deref() {

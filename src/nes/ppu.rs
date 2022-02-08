@@ -579,7 +579,7 @@ impl Ppu {
     pub fn new(
         sdl: &Sdl,
         rm: &R<ResetManager>,
-        cpu: &R<Mos6502>,
+        cpu: &mut Mos6502,
         event_pump: R<EventPump>,
         scale: u32,
     ) -> R<Self> {
@@ -616,8 +616,6 @@ impl Ppu {
             },
             buf,
         );
-
-        let cpu = cpu.borrow_mut();
 
         let ppu = r(Ppu {
             bus,

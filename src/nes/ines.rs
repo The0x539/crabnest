@@ -15,9 +15,9 @@ use super::{apu::Apu, io_reg::IoReg, ppu::Ppu};
 mod header;
 pub use header::Mirroring;
 
-pub struct RomInfo {
+pub struct RomInfo<'a> {
     pub rm: R<ResetManager>,
-    pub cpu: R<Mos6502>,
+    pub cpu: &'a Mos6502,
     pub ppu: R<Ppu>,
     pub mirroring: Mirroring,
 
@@ -32,7 +32,7 @@ pub fn rom_load(
     mut f: File,
     sdl: &Sdl,
     rm: &R<ResetManager>,
-    cpu: &R<Mos6502>,
+    cpu: &mut Mos6502,
     palette_path: &Path,
     cscheme_path: &Path,
     scale: u32,
@@ -75,7 +75,7 @@ pub fn rom_load(
 
     let info = RomInfo {
         rm: rm.clone(),
-        cpu: cpu.clone(),
+        cpu,
         mirroring: header.nt_mirroring(),
         ppu,
         prg_rom,
@@ -97,14 +97,13 @@ pub fn rom_load(
 fn setup_common(
     sdl: &Sdl,
     rm: &R<ResetManager>,
-    cpu: &R<Mos6502>,
+    cpu: &mut Mos6502,
     palette_path: &Path,
     cscheme_path: &Path,
     scale: u32,
 ) -> io::Result<R<Ppu>> {
     {
-        let cpu_ref = cpu.borrow();
-        let bus = &mut *cpu_ref.bus.borrow_mut();
+        let bus = &mut *cpu.bus.borrow_mut();
 
         let ram = Memory::new(rm, 0x0800, true);
         Memory::map(&ram, bus, 0x0000, ram.borrow().size() as u16, 0x0000);
@@ -118,7 +117,7 @@ fn setup_common(
 
     let apu = Apu::new(sdl, rm, cpu);
 
-    crate::nes::pageforty::setup(&mut *cpu.borrow().bus.borrow_mut(), io_reg, apu);
+    crate::nes::pageforty::setup(&mut cpu.bus.borrow_mut(), io_reg, apu);
 
     let ppu = Ppu::new(sdl, rm, cpu, event_pump, scale);
 

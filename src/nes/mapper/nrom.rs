@@ -1,7 +1,7 @@
 use crate::memory::Memory;
 use crate::nes::ines::{Mirroring, RomInfo};
 
-pub fn setup(info: RomInfo) -> Result<(), &'static str> {
+pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
     if info.prg_ram.as_ref().map(|r| r.borrow().size()) > Some(0x2000) {
         return Err("ROM has invalid PRG-RAM configuration");
     }
@@ -18,8 +18,7 @@ pub fn setup(info: RomInfo) -> Result<(), &'static str> {
         return Err("ROM has invalid VRAM configuration");
     }
 
-    let cpu = info.cpu.borrow();
-    let c_bus = &mut *cpu.bus.borrow_mut();
+    let c_bus = &mut *info.cpu.bus.borrow_mut();
 
     if let Some(prg_ram) = &info.prg_ram {
         let size = prg_ram.borrow().size();

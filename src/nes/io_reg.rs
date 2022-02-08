@@ -41,15 +41,15 @@ pub struct IoReg {
 impl IoReg {
     pub fn new(
         rm: &R<ResetManager>,
-        cpu: &R<Mos6502>,
+        cpu: &mut Mos6502,
         event_pump: R<EventPump>,
         cscheme_path: &Path,
     ) -> io::Result<R<Self>> {
         let io = r(Self {
-            cpu_mem: cpu.borrow().bus.clone(),
-            tk: cpu.borrow().tk.clone(),
+            cpu_mem: cpu.bus.clone(),
+            tk: cpu.tk.clone(),
             #[cfg(feature = "cyclecheck")]
-            cpu_last_takeover_delay: cpu.borrow().last_takeover_delay.clone(),
+            cpu_last_takeover_delay: cpu.last_takeover_delay.clone(),
             event_pump,
             controller_strobe: false,
             controller_shiftregs: [0, 0],

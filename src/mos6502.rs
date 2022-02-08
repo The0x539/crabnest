@@ -6,7 +6,7 @@ use bitflags::bitflags;
 use crate::membus::MemBus;
 use crate::reset_manager::ResetManager;
 use crate::timekeeper::Timekeeper;
-use crate::{r, R};
+use crate::R;
 
 mod isa;
 mod vmcall;
@@ -150,7 +150,7 @@ pub struct Mos6502 {
 }
 
 impl Mos6502 {
-    pub fn new(rm: &R<ResetManager>, tk: &R<Timekeeper>, paravirt_args: &[&str]) -> R<Self> {
+    pub fn new(rm: &R<ResetManager>, tk: &R<Timekeeper>, paravirt_args: &[&str]) -> Box<Self> {
         let bus = MemBus::new(rm);
         let tk = tk.clone();
         let cpu = Self {
@@ -175,7 +175,7 @@ impl Mos6502 {
             #[cfg(windows)]
             open_files: Default::default(),
         };
-        r(cpu)
+        Box::new(cpu)
     }
 
     pub fn advance_clk(&mut self, ncycles: usize) {

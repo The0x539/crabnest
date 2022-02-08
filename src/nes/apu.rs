@@ -638,7 +638,7 @@ impl Apu {
         sdl: &Sdl,
         // TODO: actually use this (the thing I've done with timers might make it tricky)
         _rm: &R<ResetManager>,
-        cpu: &R<Mos6502>,
+        cpu: &Mos6502,
     ) -> R<Self> {
         let audio = sdl.audio().expect("Could not init SDL audio");
         let queue = audio
@@ -653,8 +653,6 @@ impl Apu {
             .expect("Could not open audio queue");
 
         queue.resume();
-
-        let cpu = cpu.borrow();
 
         let dmc = Dmc {
             mem_reader: DmcMemReader {
