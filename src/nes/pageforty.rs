@@ -16,7 +16,7 @@ pub fn setup(bus: &mut MemBus, io_reg: R<IoReg>, apu: R<Apu>) {
 impl MemRead for PageForty {
     fn read(&mut self, addr: u16, lane_mask: &mut u8) -> u8 {
         match addr {
-            0x14 | 0x16 => self.io_reg.borrow_mut().read(addr, lane_mask),
+            0x16 | 0x17 => self.io_reg.borrow_mut().read(addr, lane_mask),
             _ => self.apu.borrow_mut().read(addr, lane_mask),
         }
     }
