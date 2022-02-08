@@ -3,7 +3,7 @@
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
 
-#[derive(BitfieldSpecifier, PartialEq)]
+#[derive(BitfieldSpecifier, PartialEq, Copy, Clone)]
 pub enum Mirroring {
     Horizontal = 0,
     Vertical = 1,
@@ -190,9 +190,8 @@ pub trait Header {
         }
 
         match self.console_type() {
-            ConsoleType::Nes => (),
+            ConsoleType::Nes | ConsoleType::Playchoice10 => (),
             ConsoleType::VsSystem => e!("Unsupported console type: Vs. System"),
-            ConsoleType::Playchoice10 => e!("Unsupported console type: Playchoice 10"),
             ConsoleType::Extended => e!("Unsupported console type: extended"),
         }
 
@@ -203,8 +202,8 @@ pub trait Header {
         }
 
         match self.mapper() {
-            0 | 1 => (),
-            n => e!("Unsupported mapper: {n} (supported: 0, 1)"),
+            0 | 1 | 4 => (),
+            n => e!("Unsupported mapper: {n} (supported: 0, 1, 4)"),
         }
 
         if self.prg_nvram_size() != 0 && !self.battery_present() {

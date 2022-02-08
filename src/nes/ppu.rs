@@ -16,6 +16,8 @@ use crate::reset_manager::{Reset, ResetManager};
 use crate::timekeeper::Timed;
 use crate::{r, R};
 
+use super::mapper::mmc3::Mmc3Irq;
+
 const OUTPUT_WIDTH: u32 = 256;
 const OUTPUT_HEIGHT: u32 = 240;
 const CLK_DIVISOR: u64 = 4;
@@ -221,6 +223,7 @@ struct PpuSdl {
 pub struct Ppu {
     pub bus: R<MemBus>,
     nmi_line: NmiLine,
+    pub(super) mmc3_irq: Option<R<Mmc3Irq>>,
 
     sdl: PpuSdl,
     sdl_events: R<EventPump>,
@@ -625,6 +628,7 @@ impl Ppu {
         let ppu = r(Ppu {
             bus,
             nmi_line: cpu.get_nmi_line(),
+            mmc3_irq: None,
             sdl: ppu_sdl,
             sdl_events: event_pump,
             state: Zeroable::zeroed(),
@@ -782,6 +786,44 @@ impl Ppu {
     fn dummy_memfetch(&mut self) {
         // "todo"
     }
+
+    fn update_mmc3_irq(&mut self) {
+        use ChrBaseAddr::*;
+        use SpriteSize::*;
+
+        let mut mmc3 = match &self.mmc3_irq {
+            Some(x) => x.borrow_mut(),
+            None => return,
+        };
+
+        let fl = &self.state.flags;
+        // TODO: figure out which exact scanlines this should be done with
+        let dotnum = match (
+            fl.sprite_size(),
+            fl.bg_chr_baseaddr(),
+            fl.sprite_chr_baseaddr(),
+        ) {
+            (EightByEight, Addr0000, Addr0000) => return,
+            (EightByEight, Addr0000, Addr1000) => 260,
+            (EightByEight, Addr1000, Addr0000) => 324,
+            (EightByEight, Addr1000, Addr1000) => panic!(),
+            (EightBySixteen, _, _) => todo!(),
+        };
+
+        if self.state.dotnum != dotnum || self.state.slnum >= 240 {
+            return;
+        }
+
+        if mmc3.counter == 0 || mmc3.reload {
+            mmc3.counter = mmc3.latch;
+        } else {
+            mmc3.counter -= 1;
+        }
+
+        if mmc3.counter == 0 && mmc3.enabled {
+            mmc3.line.raise();
+        }
+    }
 }
 
 impl Reset for Ppu {
@@ -832,6 +874,7 @@ impl Timed for Ppu {
         self.state.shift_shiftregs();
         self.state.load_shiftregs();
         self.state.update_vram_addr();
+        self.update_mmc3_irq();
         self.state.spriteeval();
 
         self.draw_pixel();

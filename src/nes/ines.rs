@@ -85,13 +85,15 @@ pub fn rom_load(
         vram,
     };
 
-    use super::mapper::{nrom, sxrom};
+    use super::mapper::*;
 
-    match header.mapper() {
-        0 => nrom::setup(info).map_err(e),
-        1 => sxrom::setup(info).map_err(e),
+    let setup = match header.mapper() {
+        0 => nrom::setup,
+        1 => sxrom::setup,
+        4 => mmc3::setup,
         _ => unreachable!(),
-    }
+    };
+    setup(info).map_err(e)
 }
 
 fn setup_common(
