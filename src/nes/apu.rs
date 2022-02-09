@@ -430,20 +430,26 @@ struct DmcMemReader {
     addr: u16,
     len: u16,
     bytes_remaining: u16,
+    irq_line: IrqLine,
 }
 
 impl DmcMemReader {
     fn next(&mut self, control: &DmcControl) -> Option<u8> {
-        if self.bytes_remaining == 0 && control.repeat() {
-            self.addr = self.start;
-            self.bytes_remaining = self.len;
-        }
-
         if self.bytes_remaining > 0 {
             // TODO: "stall the CPU"
             let val = self.mem.borrow().read(self.addr);
-            self.bytes_remaining -= 1;
             self.addr = self.addr.checked_add(1).unwrap_or(0x8000);
+
+            self.bytes_remaining -= 1;
+            if self.bytes_remaining == 0 {
+                if control.repeat() {
+                    self.addr = self.start;
+                    self.bytes_remaining = self.len;
+                } else if control.irq() {
+                    self.irq_line.raise();
+                }
+            }
+
             Some(val)
         } else {
             None
@@ -461,7 +467,6 @@ struct DmcOutputUnit {
 
 struct Dmc {
     mem_reader: DmcMemReader,
-    interrupt_flag: bool,
     sample_buffer: Option<u8>,
     timer: u8,
     output_unit: DmcOutputUnit,
@@ -661,8 +666,8 @@ impl Apu {
                 addr: 0,
                 len: 0,
                 bytes_remaining: 0,
+                irq_line: cpu.get_irq_line(),
             },
-            interrupt_flag: false,
             sample_buffer: None,
             timer: 0,
             output_unit: Default::default(),
@@ -719,8 +724,7 @@ impl MemRead for Apu {
             let mut status = ApuStatus::new();
             status.set_frame_int(self.frame_counter.irq_line.clear());
 
-            // TODO: this should be an actual interrupt line
-            status.set_dmc_int(self.dmc.interrupt_flag);
+            status.set_dmc_int(self.dmc.mem_reader.irq_line.active());
 
             status.set_noise_lc_st(self.noise.length_counter > 0);
             status.set_tri_lc_st(self.triangle.length_counter > 0);
@@ -754,6 +758,11 @@ impl MemWrite for Apu {
             0x07 => self.pulse2.set_lc(length_counter),
             0x0B => self.triangle.set_lc(length_counter),
             0x0F => self.noise.set_lc(length_counter),
+            0x10 => {
+                if !self.regs.dmc.irq() {
+                    self.dmc.mem_reader.irq_line.clear();
+                }
+            }
             0x11 => self.dmc.output_unit.output_level = self.regs.dmc.direct_load(),
             0x12 => {
                 let s_addr = self.regs.dmc.s_addr() as u16 * 64 + 0xC000;
@@ -764,6 +773,14 @@ impl MemWrite for Apu {
                 let len = self.regs.dmc.s_len() as u16 * 16 + 1;
                 self.dmc.mem_reader.len = len;
                 self.dmc.mem_reader.bytes_remaining = len;
+            }
+            0x15 => {
+                let mr = &mut self.dmc.mem_reader;
+                mr.irq_line.clear();
+                if self.regs.control.dmc_lc_en() && mr.bytes_remaining == 0 {
+                    mr.bytes_remaining = mr.len;
+                    mr.addr = mr.start;
+                }
             }
             0x17 => {
                 self.frame_counter.timer = 0;

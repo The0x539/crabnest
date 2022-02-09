@@ -71,6 +71,10 @@ impl IrqLine {
         }
         val
     }
+
+    pub fn active(&self) -> bool {
+        self.active
+    }
 }
 
 impl Drop for IrqLine {
