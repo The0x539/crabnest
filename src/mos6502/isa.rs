@@ -267,8 +267,8 @@ impl Mos6502 {
             }
             AddrMode::Rel => addr = (self.pc as i16 + self.read8pc() as i8 as i16) as u16,
             AddrMode::ZeroP => addr = self.read8pc() as u16,
-            AddrMode::ZeroPX => addr = (self.read8pc() + self.x) as u16,
-            AddrMode::ZeroPY => addr = (self.read8pc() + self.y) as u16,
+            AddrMode::ZeroPX => addr = self.read8pc().wrapping_add(self.x) as u16,
+            AddrMode::ZeroPY => addr = self.read8pc().wrapping_add(self.y) as u16,
 
             AddrMode::None => return StepResult::IllegalInstruction,
         }
