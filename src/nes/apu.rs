@@ -8,7 +8,7 @@ use sdl2::{
 };
 
 use crate::{
-    membus::{MemBus, MemRead, MemWrite},
+    membus::{MemRead, MemWrite},
     mos6502::{self, IrqLine, Mos6502},
     r,
     reset_manager::ResetManager,
@@ -424,110 +424,8 @@ impl Channel for Noise {
     }
 }
 
-struct DmcMemReader {
-    mem: R<MemBus>,
-    start: u16,
-    addr: u16,
-    len: u16,
-    bytes_remaining: u16,
-    irq_line: IrqLine,
-}
-
-impl DmcMemReader {
-    fn next(&mut self, control: &DmcControl) -> Option<u8> {
-        if self.bytes_remaining > 0 {
-            // TODO: "stall the CPU"
-            let val = self.mem.borrow().read(self.addr);
-            self.addr = self.addr.checked_add(1).unwrap_or(0x8000);
-
-            self.bytes_remaining -= 1;
-            if self.bytes_remaining == 0 {
-                if control.repeat() {
-                    self.addr = self.start;
-                    self.bytes_remaining = self.len;
-                } else if control.irq() {
-                    self.irq_line.raise();
-                }
-            }
-
-            Some(val)
-        } else {
-            None
-        }
-    }
-}
-
-#[derive(Default)]
-struct DmcOutputUnit {
-    rsr: u8,
-    bits_remaining: u8,
-    output_level: u8,
-    silence: bool,
-}
-
-struct Dmc {
-    mem_reader: DmcMemReader,
-    sample_buffer: Option<u8>,
-    timer: u8,
-    output_unit: DmcOutputUnit,
-}
-
-impl Dmc {
-    fn empty_sample_buffer(&mut self, control: &DmcControl) -> Option<u8> {
-        let val = self.sample_buffer;
-        self.sample_buffer = self.mem_reader.next(control);
-        val
-    }
-}
-
-impl Channel for Dmc {
-    type Control = DmcControl;
-
-    fn set_lc(&mut self, _val: u8) {}
-
-    fn quarter_frame(&mut self, _control: &Self::Control) {}
-
-    fn half_frame(&mut self, _control: &mut Self::Control) {}
-
-    fn tick(&mut self, control: &Self::Control) {
-        if self.timer == 0 {
-            self.timer = (DMC_RATES[control.freq_idx() as usize] / 2) as u8;
-
-            if !self.output_unit.silence {
-                let v = &mut self.output_unit.output_level;
-                if self.output_unit.rsr & 1 != 0 {
-                    if *v <= 125 {
-                        *v += 2;
-                    }
-                } else {
-                    if *v >= 2 {
-                        *v -= 2;
-                    }
-                }
-            }
-
-            self.output_unit.rsr >>= 1;
-
-            if self.output_unit.bits_remaining == 0 {
-                self.output_unit.bits_remaining = 8;
-                if let Some(v) = self.empty_sample_buffer(control) {
-                    self.output_unit.rsr = v;
-                    self.output_unit.silence = false;
-                } else {
-                    self.output_unit.silence = true
-                }
-            } else {
-                self.output_unit.bits_remaining -= 1;
-            }
-        } else {
-            self.timer -= 1;
-        }
-    }
-
-    fn sample(&self, _control: &Self::Control) -> u8 {
-        self.output_unit.output_level
-    }
-}
+mod dmc;
+use dmc::*;
 
 fn inv_or_zero(n: f64) -> f64 {
     if n == 0.0 {
@@ -659,19 +557,7 @@ impl Apu {
 
         queue.resume();
 
-        let dmc = Dmc {
-            mem_reader: DmcMemReader {
-                mem: cpu.bus.clone(),
-                start: 0,
-                addr: 0,
-                len: 0,
-                bytes_remaining: 0,
-                irq_line: cpu.get_irq_line(),
-            },
-            sample_buffer: None,
-            timer: 0,
-            output_unit: Default::default(),
-        };
+        let dmc = Dmc::new(cpu);
 
         let frame_counter = FrameCounter {
             timer: 0,
@@ -724,14 +610,14 @@ impl MemRead for Apu {
             let mut status = ApuStatus::new();
             status.set_frame_int(self.frame_counter.irq_line.clear());
 
-            status.set_dmc_int(self.dmc.mem_reader.irq_line.active());
+            status.set_dmc_int(self.dmc.irq_active());
 
             status.set_noise_lc_st(self.noise.length_counter > 0);
             status.set_tri_lc_st(self.triangle.length_counter > 0);
             status.set_p2_lc_st(self.pulse2.length_counter > 0);
             status.set_p1_lc_st(self.pulse1.length_counter > 0);
 
-            status.set_dmc_active(self.dmc.mem_reader.bytes_remaining > 0);
+            status.set_dmc_active(self.dmc.has_more_bytes());
 
             status.bytes[0]
         } else {
@@ -760,26 +646,22 @@ impl MemWrite for Apu {
             0x0F => self.noise.set_lc(length_counter),
             0x10 => {
                 if !self.regs.dmc.irq() {
-                    self.dmc.mem_reader.irq_line.clear();
+                    self.dmc.clear_irq();
                 }
             }
-            0x11 => self.dmc.output_unit.output_level = self.regs.dmc.direct_load(),
+            0x11 => self.dmc.set_output_level(self.regs.dmc.direct_load()),
             0x12 => {
                 let s_addr = self.regs.dmc.s_addr() as u16 * 64 + 0xC000;
-                self.dmc.mem_reader.start = s_addr;
-                self.dmc.mem_reader.addr = s_addr;
+                self.dmc.set_sample_start(s_addr);
             }
             0x13 => {
-                let len = self.regs.dmc.s_len() as u16 * 16 + 1;
-                self.dmc.mem_reader.len = len;
-                self.dmc.mem_reader.bytes_remaining = len;
+                let length = self.regs.dmc.s_len() as u16 * 16 + 1;
+                self.dmc.set_sample_length(length);
             }
             0x15 => {
-                let mr = &mut self.dmc.mem_reader;
-                mr.irq_line.clear();
-                if self.regs.control.dmc_lc_en() && mr.bytes_remaining == 0 {
-                    mr.bytes_remaining = mr.len;
-                    mr.addr = mr.start;
+                self.dmc.clear_irq();
+                if self.regs.control.dmc_lc_en() {
+                    self.dmc.restart();
                 }
             }
             0x17 => {
