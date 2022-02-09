@@ -734,30 +734,22 @@ impl Ppu {
         let spritenum = (st.dotnum - 257) / 8;
         let sprite = st.eval_sprites[spritenum];
 
-        let mut bmp_addr: u16;
-        let mut tile = sprite.tile;
-        match st.flags.sprite_size() {
-            SpriteSize::EightByEight => {
-                bmp_addr = st.flags.sprite_chr_baseaddr().addr();
-            }
-            SpriteSize::EightBySixteen => {
-                bmp_addr = 0x1000 * (tile as u16 & 0x1);
-                tile &= !0x1;
-            }
-        }
-
-        let mut y_offset = st.vram_addr.coarse_yscroll() * 8 + st.vram_addr.fine_yscroll();
-        y_offset = y_offset.wrapping_sub(1).wrapping_sub(sprite.ypos);
-        if st.flags.sprite_size() == SpriteSize::EightBySixteen {
-            tile += (y_offset / 8) ^ sprite.attr.verti_flipped() as u8;
-            y_offset %= 8;
-        }
-
+        let mut y_offset = st.slnum as u16 - sprite.ypos as u16;
         if sprite.attr.verti_flipped() {
-            y_offset = 7_u8.wrapping_sub(y_offset);
-        }
+            y_offset = st.flags.sprite_size().height() as u16 - y_offset;
+        };
 
-        bmp_addr += tile as u16 * 16 + y_offset as u16;
+        let (base, tile) = match st.flags.sprite_size() {
+            SpriteSize::EightByEight => (st.flags.sprite_chr_baseaddr().addr(), sprite.tile),
+            SpriteSize::EightBySixteen => {
+                if y_offset >= 8 {
+                    y_offset += 8;
+                }
+                ((sprite.tile as u16 & 1) << 3, sprite.tile & !1)
+            }
+        };
+
+        let bmp_addr = base | tile as u16 * 16 + y_offset;
 
         let bus = self.bus.borrow();
         match (st.dotnum - 1) % 8 {
