@@ -1,7 +1,7 @@
 use super::{Mos6502, StatReg, StepResult};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub(super) enum AddrMode {
+enum AddrMode {
     None,
     Abs,
     AbsX,
@@ -20,7 +20,7 @@ pub(super) enum AddrMode {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[rustfmt::skip]
-pub(super) enum Instr {
+enum Instr {
     ADC, AND, ASL, BCC, BCS, BEQ, BIT, BMI,
     BNE, BPL, BRK, BVC, BVS, CLC, CLD, CLI,
     CLV, CMP, CPX, CPY, DEC, DEX, DEY, EOR,
