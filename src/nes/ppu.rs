@@ -736,7 +736,7 @@ impl Ppu {
 
         let mut y_offset = st.slnum as u16 - sprite.ypos as u16;
         if sprite.attr.verti_flipped() {
-            y_offset = st.flags.sprite_size().height() as u16 - y_offset;
+            y_offset = (st.flags.sprite_size().height() as u16 - 1) - y_offset;
         };
 
         let (base, tile) = match st.flags.sprite_size() {
@@ -745,7 +745,7 @@ impl Ppu {
                 if y_offset >= 8 {
                     y_offset += 8;
                 }
-                ((sprite.tile as u16 & 1) << 3, sprite.tile & !1)
+                ((sprite.tile as u16 & 1) * 0x1000, sprite.tile & !1)
             }
         };
 
