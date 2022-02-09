@@ -305,7 +305,7 @@ impl PpuState {
 
     fn shift_shiftregs(&mut self) {
         match self.dotnum {
-            1..=256 | 321..=336 => (),
+            2..=257 | 322..=337 => (),
             _ => return,
         }
 
@@ -321,7 +321,7 @@ impl PpuState {
 
     fn load_shiftregs(&mut self) {
         match self.dotnum {
-            n @ (9..=257 | 329..=337) if n % 8 == 1 => (),
+            n @ (8..=256 | 328..=336) if n % 8 == 0 => (),
             _ => return,
         }
 
@@ -331,13 +331,17 @@ impl PpuState {
         self.bg_bmp_shiftregs[0] |= self.bmp_latch[0] as u16;
         self.bg_bmp_shiftregs[1] |= self.bmp_latch[1] as u16;
 
-        let mut v = self.vram_addr.clone();
-        v.set(self.vram_addr_bus);
-
-        let attr_x = (v.coarse_xscroll() / 2) % 2;
-        let attr_y = (v.coarse_yscroll() / 2) % 2;
-        let attr_idx = attr_y * 2 + attr_x;
-        let attr_shift = attr_idx * 2;
+        let (xscroll, yscroll) = (
+            self.vram_addr.coarse_xscroll(),
+            self.vram_addr.coarse_yscroll(),
+        );
+        let attr_shift = match (xscroll >> 1 & 1, yscroll >> 1 & 1) {
+            (0, 0) => 0,
+            (1, 0) => 2,
+            (0, 1) => 4,
+            (1, 1) => 6,
+            _ => unreachable!(),
+        };
 
         self.bg_palette = (self.attr_latch >> attr_shift) & 0x3;
     }
@@ -347,16 +351,19 @@ impl PpuState {
             return;
         }
 
-        match self.dotnum {
-            n @ (1..=256 | 321..=336) if n % 8 == 0 => {
-                self.vram_addr.inc_coarse_x();
-                if n == 256 {
-                    self.vram_addr.inc_y();
+        if self.slnum < 240 {
+            match self.dotnum {
+                n @ (1..=256 | 321..=336) if n % 8 == 0 => {
+                    self.vram_addr.inc_coarse_x();
+                    if n == 256 {
+                        self.vram_addr.inc_y();
+                    }
                 }
+                257 => self.vram_addr.copy_h(self.tmp_vram_addr),
+                _ => (),
             }
-            257 => self.vram_addr.copy_h(self.tmp_vram_addr),
-            280..=304 if self.slnum == 261 => self.vram_addr.copy_v(self.tmp_vram_addr),
-            _ => (),
+        } else if self.slnum == 261 && (280..=304).contains(&self.dotnum) {
+            self.vram_addr.copy_v(self.tmp_vram_addr);
         }
     }
 
@@ -486,6 +493,11 @@ impl PpuState {
     }
 
     fn move_cursor(&mut self) {
+        if self.dotnum == 0 && self.slnum == 0 && self.framenum % 2 == 1 && self.mask.bg_en() {
+            // If the background is enabled, skip the first tick of the first scanline of odd frames
+            self.dotnum += 1;
+        }
+
         self.dotnum += 1;
         if self.dotnum <= 340 {
             return;
@@ -499,11 +511,6 @@ impl PpuState {
         self.slnum = 0;
 
         self.framenum += 1;
-
-        if self.framenum % 2 == 1 && self.mask.bg_en() {
-            // If the background is enabled, skip the first tick of the first scanline of odd frames
-            self.dotnum += 1;
-        }
     }
 
     fn palette_loc(&self, addr: u16) -> Option<&u8> {
@@ -868,9 +875,9 @@ impl Timed for Ppu {
 
         self.memfetch();
         self.update_a12();
-        self.state.update_vram_addr();
-        self.state.shift_shiftregs();
         self.state.load_shiftregs();
+        self.state.shift_shiftregs();
+        self.state.update_vram_addr();
         self.state.spriteeval();
 
         self.draw_pixel();
