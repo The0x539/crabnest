@@ -106,13 +106,13 @@ impl MemWrite for Mmc3 {
             }
             2 => {
                 if data & 1 == 0 {
-                    // horizontal
-                    self.vram_sels[1].set(0x0000);
-                    self.vram_sels[2].set(0x0400);
-                } else {
                     // vertical
                     self.vram_sels[1].set(0x0400);
                     self.vram_sels[2].set(0x0000);
+                } else {
+                    // horizontal
+                    self.vram_sels[1].set(0x0000);
+                    self.vram_sels[2].set(0x0400);
                 }
             }
             3 => {
