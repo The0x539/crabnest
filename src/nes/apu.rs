@@ -756,10 +756,9 @@ impl MemWrite for Apu {
             0x0F => self.noise.set_lc(length_counter),
             0x11 => self.dmc.output_unit.output_level = self.regs.dmc.direct_load(),
             0x12 => {
-                let addr = self.regs.dmc.s_addr() as u16 * 64 + 0xC000;
-                let addr = 0xC000 + addr * 64;
-                self.dmc.mem_reader.start = addr;
-                self.dmc.mem_reader.addr = addr;
+                let s_addr = self.regs.dmc.s_addr() as u16 * 64 + 0xC000;
+                self.dmc.mem_reader.start = s_addr;
+                self.dmc.mem_reader.addr = s_addr;
             }
             0x13 => {
                 let len = self.regs.dmc.s_len() as u16 * 16 + 1;
