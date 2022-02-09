@@ -1,5 +1,21 @@
 #![allow(dead_code)]
 
+#[warn(dead_code)]
+mod dmc;
+use dmc::Dmc;
+
+#[warn(dead_code)]
+mod pulse;
+use pulse::Pulse;
+
+#[warn(dead_code)]
+mod noise;
+use noise::Noise;
+
+#[warn(dead_code)]
+mod triangle;
+use triangle::Triangle;
+
 use bytemuck::{Pod, Zeroable};
 use modular_bitfield::prelude::*;
 use sdl2::{
@@ -21,18 +37,6 @@ const QUARTER_FRAME: u64 = 358000 / 4;
 const LENGTH_COUNTERS: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
     192, 24, 72, 26, 16, 28, 32, 30,
-];
-const PULSE_SEQUENCES: [[u8; 8]; 4] = [
-    [0, 0, 0, 0, 0, 0, 0, 1],
-    [0, 0, 0, 0, 0, 0, 1, 1],
-    [0, 0, 0, 0, 1, 1, 1, 1],
-    [1, 1, 1, 1, 1, 1, 0, 0],
-];
-const DMC_RATES: [u16; 16] = [
-    428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
-];
-const NOISE_PERIODS: [u16; 16] = [
-    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ];
 
 #[bitfield(bits = 8)]
@@ -230,203 +234,6 @@ trait Channel {
     fn sample(&self, control: &Self::Control) -> u8;
 }
 
-#[derive(Default)]
-struct Pulse {
-    sequence: [u8; 8],
-    sequence_pos: usize,
-    timer: u16,
-    length_counter: u8,
-    sweep_counter: u8,
-    reload_sweep: bool,
-    is_pulse2: bool,
-    envelope: Envelope,
-}
-
-impl Pulse {
-    fn target_period(&self, control: &PulseControl) -> u16 {
-        let raw_period = control.timer.timer();
-        let change_amount = raw_period >> control.sweep.shift_count();
-        match (control.sweep.negative(), self.is_pulse2) {
-            (true, true) => raw_period - change_amount - 1,
-            (true, false) => raw_period - change_amount,
-            (false, _) => raw_period + change_amount,
-        }
-    }
-
-    fn update_period(&mut self, control: &mut PulseControl) {
-        let period = self.target_period(control);
-        if control.sweep.enabled() && self.sweep_counter == 0 && period <= 0x07FF {
-            control.timer.set_timer(period);
-        }
-        if self.sweep_counter == 0 || self.reload_sweep {
-            self.reload_sweep = false;
-            self.sweep_counter = control.sweep.period();
-        } else {
-            self.sweep_counter -= 1;
-        }
-    }
-}
-
-impl Channel for Pulse {
-    type Control = PulseControl;
-
-    fn set_lc(&mut self, val: u8) {
-        self.length_counter = val;
-        self.sequence_pos = 0;
-        self.envelope.start_flag = true;
-    }
-
-    fn quarter_frame(&mut self, control: &Self::Control) {
-        self.envelope
-            .quarter_frame(control.duty.lch(), control.duty.volume());
-    }
-
-    fn half_frame(&mut self, control: &mut Self::Control) {
-        if !control.duty.lch() {
-            self.length_counter = self.length_counter.saturating_sub(1);
-        }
-        self.update_period(control);
-    }
-
-    fn tick(&mut self, control: &Self::Control) {
-        let period = control.timer.timer();
-
-        if self.timer == 0 {
-            self.timer = period;
-            self.sequence_pos = self.sequence_pos.checked_sub(1).unwrap_or(7);
-        } else {
-            self.timer -= 1;
-        }
-
-        self.sequence = PULSE_SEQUENCES[control.duty.duty() as usize];
-    }
-
-    fn sample(&self, control: &Self::Control) -> u8 {
-        if self.length_counter == 0 {
-            return 0;
-        }
-
-        if control.timer.timer() < 8 || self.target_period(control) > 0x07FF {
-            return 0;
-        }
-
-        self.envelope.output(
-            self.sequence[self.sequence_pos] != 0,
-            control.duty.constant(),
-            control.duty.volume(),
-        )
-    }
-}
-
-#[derive(Default)]
-struct Triangle {
-    sequence_pos: u8,
-    timer: u16,
-    length_counter: u8,
-    linear_counter: u8,
-    linear_counter_reload: bool,
-}
-
-impl Channel for Triangle {
-    type Control = TriangleControl;
-
-    fn set_lc(&mut self, val: u8) {
-        self.length_counter = val;
-        self.linear_counter_reload = true;
-    }
-
-    fn quarter_frame(&mut self, control: &Self::Control) {
-        if self.linear_counter_reload {
-            self.linear_counter = control.counter.reload();
-        } else {
-            self.linear_counter = self.linear_counter.saturating_sub(1);
-        }
-
-        if !control.counter.control() {
-            self.linear_counter_reload = false;
-        }
-    }
-
-    fn half_frame(&mut self, control: &mut Self::Control) {
-        if !control.counter.control() {
-            self.length_counter = self.length_counter.saturating_sub(1);
-        }
-    }
-
-    fn tick(&mut self, control: &Self::Control) {
-        if self.timer == 0 {
-            self.timer = control.timer.timer() + 1;
-            if self.linear_counter != 0 && self.length_counter != 0 {
-                self.sequence_pos = (self.sequence_pos + 1) % 32;
-            }
-        } else {
-            self.timer -= 1;
-        }
-    }
-
-    fn sample(&self, _control: &Self::Control) -> u8 {
-        match self.sequence_pos {
-            n @ 0..=15 => 15 - n,
-            n @ 16..=31 => n - 16,
-            32.. => unreachable!(),
-        }
-    }
-}
-
-#[derive(Default)]
-struct Noise {
-    envelope: Envelope,
-    length_counter: u8,
-    timer: u16,
-    shift_reg: u16,
-}
-
-impl Noise {
-    fn sr_bit(&self, n: u8) -> u16 {
-        (self.shift_reg >> n) & 1
-    }
-}
-
-impl Channel for Noise {
-    type Control = NoiseControl;
-
-    fn set_lc(&mut self, val: u8) {
-        self.length_counter = val;
-        self.envelope.start_flag = true;
-    }
-
-    fn quarter_frame(&mut self, control: &Self::Control) {
-        self.envelope.quarter_frame(control.lch(), control.volume());
-    }
-
-    fn half_frame(&mut self, control: &mut NoiseControl) {
-        if !control.lch() {
-            self.length_counter = self.length_counter.saturating_sub(1);
-        }
-    }
-
-    fn tick(&mut self, control: &Self::Control) {
-        if self.timer == 0 {
-            self.timer = NOISE_PERIODS[control.period() as usize];
-            let feedback = self.sr_bit(0) ^ self.sr_bit(if control.mode() { 6 } else { 1 });
-            self.shift_reg = (self.shift_reg >> 1) | (feedback << 14);
-        } else {
-            self.timer -= 1;
-        }
-    }
-
-    fn sample(&self, control: &Self::Control) -> u8 {
-        if self.length_counter == 0 {
-            return 0;
-        }
-        self.envelope
-            .output(self.sr_bit(0) != 0, control.lch(), control.volume())
-    }
-}
-
-mod dmc;
-use dmc::*;
-
 fn inv_or_zero(n: f64) -> f64 {
     if n == 0.0 {
         0.0
@@ -557,30 +364,25 @@ impl Apu {
 
         queue.resume();
 
-        let dmc = Dmc::new(cpu);
-
         let frame_counter = FrameCounter {
             timer: 0,
             irq_line: cpu.get_irq_line(),
         };
 
-        let mut apu = Apu {
+        let apu = Apu {
             regs: Zeroable::zeroed(),
 
-            pulse1: Default::default(),
-            pulse2: Default::default(),
-            triangle: Default::default(),
-            noise: Default::default(),
-            dmc,
+            pulse1: Pulse::new(false),
+            pulse2: Pulse::new(true),
+            triangle: Triangle::default(),
+            noise: Noise::new(),
+            dmc: Dmc::new(cpu),
 
             frame_counter,
 
             samples: Vec::with_capacity(65536),
             queue,
         };
-
-        apu.pulse2.is_pulse2 = true;
-        apu.noise.shift_reg = 1;
 
         let apu = r(apu);
 
@@ -612,10 +414,10 @@ impl MemRead for Apu {
 
             status.set_dmc_int(self.dmc.irq_active());
 
-            status.set_noise_lc_st(self.noise.length_counter > 0);
-            status.set_tri_lc_st(self.triangle.length_counter > 0);
-            status.set_p2_lc_st(self.pulse2.length_counter > 0);
-            status.set_p1_lc_st(self.pulse1.length_counter > 0);
+            status.set_noise_lc_st(self.noise.active());
+            status.set_tri_lc_st(self.triangle.active());
+            status.set_p2_lc_st(self.pulse2.active());
+            status.set_p1_lc_st(self.pulse1.active());
 
             status.set_dmc_active(self.dmc.has_more_bytes());
 
@@ -636,11 +438,11 @@ impl MemWrite for Apu {
         }
         let length_counter = LENGTH_COUNTERS[data as usize >> 3];
         match addr {
-            0x01 => self.pulse1.reload_sweep = true,
+            0x01 => self.pulse1.reload_sweep(),
             0x03 => {
                 self.pulse1.set_lc(length_counter);
             }
-            0x05 => self.pulse2.reload_sweep = true,
+            0x05 => self.pulse2.reload_sweep(),
             0x07 => self.pulse2.set_lc(length_counter),
             0x0B => self.triangle.set_lc(length_counter),
             0x0F => self.noise.set_lc(length_counter),
@@ -708,19 +510,19 @@ impl Timed for ApuCycleTimer {
         } = &mut *self.apu.borrow_mut();
 
         if !regs.control.p1_lc_en() {
-            pulse1.length_counter = 0;
+            pulse1.deactivate();
         }
         if !regs.control.p2_lc_en() {
-            pulse2.length_counter = 0;
+            pulse2.deactivate();
         }
         if !regs.control.tri_lc_en() {
-            triangle.length_counter = 0;
+            triangle.deactivate();
         }
         if !regs.control.noise_lc_en() {
-            noise.length_counter = 0;
+            noise.deactivate();
         }
         if !regs.control.dmc_lc_en() {
-            // ???
+            // TODO: ???
         }
 
         triangle.tick(&regs.triangle);
