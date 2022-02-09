@@ -76,8 +76,7 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
         prg_rom,
         prg_ram,
         chr,
-        vram,
-        mirroring,
+        vram_sels,
 
         prg_nvram: _,
     } = info;
@@ -88,10 +87,6 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
 
     if chr.size() % 0x2000 != 0 {
         return Err("ROM's CHR size is not a multiple of 8192");
-    }
-
-    if vram.size() != 0x0800 {
-        return Err("ROM's VRAM size is not 2048");
     }
 
     let cpu_bus = &mut *cpu.bus.borrow_mut();
@@ -112,15 +107,6 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
     let chr_sels: [BankSel; 2] = Default::default();
     chr.map_switchable(ppu_bus, 0x0000..=0x0FFF, &chr_sels[0]);
     chr.map_switchable(ppu_bus, 0x1000..=0x1FFF, &chr_sels[1]);
-
-    // TODO: I don't think this necessarily belongs in mapper specific code
-    let vram_sels: [BankSel; 4] = Default::default();
-    vram_sels[2 - mirroring as usize].set(0x0400);
-    vram_sels[3].set(0x0400);
-    vram.map_switchable(ppu_bus, 0x2000..=0x23FF, &vram_sels[0]);
-    vram.map_switchable(ppu_bus, 0x2400..=0x28FF, &vram_sels[1]);
-    vram.map_switchable(ppu_bus, 0x2800..=0x2CFF, &vram_sels[2]);
-    vram.map_switchable(ppu_bus, 0x2C00..=0x2FFF, &vram_sels[3]);
 
     let cart = r(SxRom {
         mmc1: Mmc1::default(),

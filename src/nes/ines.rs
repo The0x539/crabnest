@@ -5,6 +5,7 @@ use std::path::Path;
 use bytemuck::Zeroable;
 use sdl2::Sdl;
 
+use crate::membus::BankSel;
 use crate::memory::Memory;
 use crate::mos6502::Mos6502;
 use crate::reset_manager::ResetManager;
@@ -19,13 +20,12 @@ pub struct RomInfo<'a> {
     pub rm: R<ResetManager>,
     pub cpu: &'a Mos6502,
     pub ppu: R<Ppu>,
-    pub mirroring: Mirroring,
 
     pub prg_rom: Memory,
     pub prg_ram: Option<Memory>,
     pub prg_nvram: Option<Memory>,
     pub chr: Memory,
-    pub vram: Memory,
+    pub vram_sels: [BankSel; 4],
 }
 
 pub fn rom_load(
@@ -69,20 +69,34 @@ pub fn rom_load(
         Memory::new(rm, header.chr_ram_size(), true)
     };
 
-    let vram = Memory::new(rm, 0x0800, true);
-
     let ppu = setup_common(sdl, rm, cpu, palette_path, cscheme_path, scale)?;
+    let vram = Memory::new(rm, 0x0800, true);
+    let vram_sels: [BankSel; 4] = Default::default();
+    {
+        match header.nt_mirroring() {
+            Mirroring::Horizontal => vram_sels[2].set(0x0400),
+            Mirroring::Vertical => vram_sels[1].set(0x0400),
+        }
+        vram_sels[3].set(0x0400);
+        let ppu = ppu.borrow();
+        let p_bus = &mut ppu.bus.borrow_mut();
+        for i in 0..4 {
+            let start = 0x2000 + 0x0400 * i as u16;
+            vram.map_switchable(p_bus, start..=start + 0x3FF, &vram_sels[i]);
+            let start = start + 0x1000;
+            vram.map_switchable(p_bus, start..=start + 0x3FF, &vram_sels[i]);
+        }
+    }
 
     let info = RomInfo {
         rm: rm.clone(),
         cpu,
-        mirroring: header.nt_mirroring(),
         ppu,
         prg_rom,
         prg_ram,
         prg_nvram,
         chr,
-        vram,
+        vram_sels,
     };
 
     use super::mapper::*;

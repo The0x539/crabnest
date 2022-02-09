@@ -145,8 +145,7 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
         prg_ram,
         prg_rom,
         chr,
-        vram,
-        mirroring,
+        vram_sels,
         rm,
         ..
     } = info;
@@ -172,14 +171,6 @@ pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
         let end = start + 0x03FF;
         chr.map_switchable(&mut ppu_bus, start..=end, &chr_sels[i as usize]);
     }
-
-    let vram_sels: [BankSel; 4] = Default::default();
-    vram_sels[2 - mirroring as usize].set(0x0400);
-    vram_sels[3].set(0x0400);
-    vram.map_switchable(&mut ppu_bus, 0x2000..=0x23FF, &vram_sels[0]);
-    vram.map_switchable(&mut ppu_bus, 0x2400..=0x27FF, &vram_sels[1]);
-    vram.map_switchable(&mut ppu_bus, 0x2800..=0x2BFF, &vram_sels[2]);
-    vram.map_switchable(&mut ppu_bus, 0x2C00..=0x2FFF, &vram_sels[3]);
 
     let mmc3 = r(Mmc3 {
         prg_sels,
