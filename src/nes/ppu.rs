@@ -559,7 +559,7 @@ impl PpuState {
             self.vram_addr.inc_coarse_x();
             self.vram_addr.inc_y();
         }
-        //self.vram_addr_bus = self.vram_addr.to_u16();
+        self.vram_addr_bus = self.vram_addr.to_u16();
     }
 
     fn nt_addr(&self) -> u16 {
