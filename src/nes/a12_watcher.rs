@@ -6,12 +6,14 @@ pub enum Edge {
 }
 
 #[derive(Default)]
-pub struct A12Watcher<const MIN_DELAY: u8 = 10> {
+pub struct A12Watcher {
     last_cycle: usize,
     cycles_down: usize,
 }
 
-impl<const MIN_DELAY: u8> A12Watcher<MIN_DELAY> {
+const MIN_DELAY: u8 = 10;
+
+impl A12Watcher {
     pub fn update_vram_addr(&mut self, addr: u16, frame_cycle: usize) -> Edge {
         let mut result = Edge::Flat;
 
