@@ -6,6 +6,7 @@ mod pageforty;
 mod ppu;
 
 mod mapper {
+    pub(super) mod axrom;
     mod mmc1;
     pub(super) mod mmc3;
     pub(super) mod nrom;

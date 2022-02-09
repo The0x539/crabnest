@@ -105,6 +105,7 @@ pub fn rom_load(
         0 => nrom::setup,
         1 => sxrom::setup,
         4 => mmc3::setup,
+        7 => axrom::setup,
         _ => unreachable!(),
     };
     setup(info).map_err(e)

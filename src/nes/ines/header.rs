@@ -202,8 +202,8 @@ pub trait Header {
         }
 
         match self.mapper() {
-            0 | 1 | 4 => (),
-            n => e!("Unsupported mapper: {n} (supported: 0, 1, 4)"),
+            0 | 1 | 4 | 7 => (),
+            n => e!("Unsupported mapper: {n} (supported: 0, 1, 4, 7)"),
         }
 
         if self.prg_nvram_size() != 0 && !self.battery_present() {
