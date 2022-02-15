@@ -42,7 +42,8 @@ struct WorldAccess {
 impl WorldAccess {
     fn input_state(&mut self) -> InputState<'_> {
         self.tk.borrow_mut().sync();
-        let event_pump = self.event_pump.borrow_mut();
+        let mut event_pump = self.event_pump.borrow_mut();
+        event_pump.pump_events();
         InputState::new(
             event_pump,
             &self.keyboard_mappings,
