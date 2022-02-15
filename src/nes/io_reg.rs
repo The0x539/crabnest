@@ -6,7 +6,7 @@ use std::path::Path;
 use std::{cell::Cell, rc::Rc};
 
 use ouroboros::self_referencing;
-use sdl2::controller::{Button, GameController};
+use sdl2::controller::{Axis, Button, GameController};
 use sdl2::keyboard::KeyboardState;
 use sdl2::Sdl;
 use sdl2::{keyboard::Scancode, EventPump};
@@ -52,6 +52,19 @@ impl WorldAccess {
     }
 }
 
+fn joystick(controller: &GameController, button: Button) -> bool {
+    const THRESHOLD: i16 = 8192; // 25%
+    let (axis, sign) = match button {
+        Button::DPadUp => (Axis::LeftY, -1),
+        Button::DPadDown => (Axis::LeftY, 1),
+        Button::DPadLeft => (Axis::LeftX, -1),
+        Button::DPadRight => (Axis::LeftX, 1),
+        _ => return false,
+    };
+    let val = controller.axis(axis);
+    val.signum() == sign && val.saturating_abs() > THRESHOLD
+}
+
 #[self_referencing]
 struct InputState<'a> {
     event_pump: std::cell::RefMut<'a, EventPump>,
@@ -66,7 +79,8 @@ impl InputState<'_> {
     fn pressed(&self, player: usize, button: usize) -> bool {
         self.with(|this| {
             if let Some(controller) = this.controllers.get(player) {
-                if controller.button(GAMEPAD_MAPPINGS[button]) {
+                let sdl_button = GAMEPAD_MAPPINGS[button];
+                if controller.button(sdl_button) || joystick(controller, sdl_button) {
                     return true;
                 }
             }
