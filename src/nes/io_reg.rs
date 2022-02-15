@@ -5,6 +5,8 @@ use std::path::Path;
 #[cfg(feature = "cyclecheck")]
 use std::{cell::Cell, rc::Rc};
 
+use ouroboros::self_referencing;
+use sdl2::keyboard::KeyboardState;
 use sdl2::{keyboard::Scancode, EventPump};
 
 use crate::membus::{MemBus, MemRead, MemWrite};
@@ -15,27 +17,45 @@ use crate::{r, R};
 
 pub const CONTROLLER_NBUTTONS: usize = 8;
 
-#[allow(dead_code)]
-pub enum Button {
-    A = 0,
-    B = 1,
-    Select = 2,
-    Start = 3,
-    Up = 4,
-    Down = 5,
-    Left = 6,
-    Right = 7,
+struct WorldAccess {
+    tk: R<Timekeeper>,
+    event_pump: R<EventPump>,
+    keyboard_mappings: [[Scancode; 2]; CONTROLLER_NBUTTONS],
+}
+
+impl WorldAccess {
+    fn input_state(&mut self) -> InputState<'_> {
+        self.tk.borrow_mut().sync();
+        let event_pump = self.event_pump.borrow_mut();
+        InputState::new(event_pump, &self.keyboard_mappings, |pump| {
+            pump.keyboard_state()
+        })
+    }
+}
+
+#[self_referencing]
+struct InputState<'a> {
+    event_pump: std::cell::RefMut<'a, EventPump>,
+    keyboard_mappings: &'a [[Scancode; 2]; CONTROLLER_NBUTTONS],
+    #[borrows(event_pump)]
+    #[covariant]
+    keyboard_state: KeyboardState<'this>,
+}
+
+impl InputState<'_> {
+    fn pressed(&self, player: usize, button: usize) -> bool {
+        let scancode = self.borrow_keyboard_mappings()[button][player];
+        self.borrow_keyboard_state().is_scancode_pressed(scancode)
+    }
 }
 
 pub struct IoReg {
     cpu_mem: R<MemBus>,
-    tk: R<Timekeeper>,
+    world: WorldAccess,
     #[cfg(feature = "cyclecheck")]
     cpu_last_takeover_delay: Rc<Cell<u64>>,
-    event_pump: R<EventPump>,
     controller_strobe: bool,
     controller_shiftregs: [u8; 2],
-    controller_mappings: [[Scancode; 2]; CONTROLLER_NBUTTONS],
 }
 
 impl IoReg {
@@ -45,17 +65,7 @@ impl IoReg {
         event_pump: R<EventPump>,
         cscheme_path: &Path,
     ) -> io::Result<R<Self>> {
-        let io = r(Self {
-            cpu_mem: cpu.bus.clone(),
-            tk: cpu.tk.clone(),
-            #[cfg(feature = "cyclecheck")]
-            cpu_last_takeover_delay: cpu.last_takeover_delay.clone(),
-            event_pump,
-            controller_strobe: false,
-            controller_shiftregs: [0, 0],
-            controller_mappings: [[Scancode::A; 2]; CONTROLLER_NBUTTONS],
-        });
-        rm.borrow_mut().add_device(&io);
+        let mut keyboard_mappings = [[Scancode::A; 2]; CONTROLLER_NBUTTONS];
 
         let mut f = BufReader::new(File::open(cscheme_path)?);
 
@@ -65,32 +75,41 @@ impl IoReg {
                 line_buffer.clear();
                 f.read_line(&mut line_buffer)?;
                 let line = line_buffer.trim_end();
-                let scancode = Scancode::from_name(line).ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Error parsing {cscheme_path:?}: unknown key '{line}'"),
-                    )
-                })?;
-                io.borrow_mut().controller_mappings[buttonnum][playernum] = scancode;
+
+                let err_msg = || format!("Error parsing {cscheme_path:?}: unknown key '{line}'");
+                let err = || io::Error::new(io::ErrorKind::InvalidData, err_msg());
+
+                let scancode = Scancode::from_name(line).ok_or_else(err)?;
+                keyboard_mappings[buttonnum][playernum] = scancode;
             }
         }
+
+        let io = r(Self {
+            cpu_mem: cpu.bus.clone(),
+            world: WorldAccess {
+                tk: cpu.tk.clone(),
+                event_pump,
+                keyboard_mappings,
+            },
+            #[cfg(feature = "cyclecheck")]
+            cpu_last_takeover_delay: cpu.last_takeover_delay.clone(),
+            controller_strobe: false,
+            controller_shiftregs: [0, 0],
+        });
+        rm.borrow_mut().add_device(&io);
 
         Ok(io)
     }
 
     fn set_strobe(&mut self, val: bool) {
         if self.controller_strobe && !val {
-            self.tk.borrow_mut().sync();
-
-            let mut ev = self.event_pump.borrow_mut();
-            ev.pump_events();
-
-            let kbstate = ev.keyboard_state();
-            for j in 0..2 {
-                for i in 0..CONTROLLER_NBUTTONS {
-                    let button = self.controller_mappings[i][j];
-                    self.controller_shiftregs[j] |=
-                        (kbstate.is_scancode_pressed(button) as u8) << i as u8;
+            let input = self.world.input_state();
+            for player in (0..2).rev() {
+                for button in (0..CONTROLLER_NBUTTONS).rev() {
+                    let index = player % 2; // anticipating 4-player support
+                    let bit = input.pressed(player, button) as u8;
+                    self.controller_shiftregs[index] <<= 1;
+                    self.controller_shiftregs[index] |= bit;
                 }
             }
         }
@@ -114,14 +133,8 @@ impl MemRead for IoReg {
 
                 let bit: u8;
                 if self.controller_strobe {
-                    self.tk.borrow_mut().sync();
-
-                    let mut ev = self.event_pump.borrow_mut();
-                    ev.pump_events();
-                    let kbstate = ev.keyboard_state();
-
-                    let button = self.controller_mappings[i][Button::A as usize];
-                    bit = kbstate.is_scancode_pressed(button) as u8;
+                    let input = self.world.input_state();
+                    bit = input.pressed(i, 0 /* A */) as u8;
                 } else {
                     bit = self.controller_shiftregs[i] & 0x01;
                     self.controller_shiftregs[i] >>= 1;
@@ -145,9 +158,11 @@ impl MemWrite for IoReg {
             0x14 => {
                 let readaddr = (val as u16) << 8;
 
+                let tk = &self.world.tk;
+
                 macro_rules! tick {
                     () => {
-                        self.tk.borrow_mut().advance_clk(mos6502::CLK_DIVISOR);
+                        tk.borrow_mut().advance_clk(mos6502::CLK_DIVISOR);
                         #[cfg(feature = "cyclecheck")]
                         {
                             self.cpu_last_takeover_delay
@@ -157,7 +172,7 @@ impl MemWrite for IoReg {
                 }
 
                 tick!();
-                if (self.tk.borrow().clk_cyclenum / mos6502::CLK_DIVISOR) % 2 != 0 {
+                if (tk.borrow().clk_cyclenum / mos6502::CLK_DIVISOR) % 2 != 0 {
                     tick!();
                 }
 
