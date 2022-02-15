@@ -1,23 +1,12 @@
-#![allow(dead_code)]
-
-#[warn(dead_code)]
 mod dmc;
-use dmc::Dmc;
-
-#[warn(dead_code)]
-mod pulse;
-use pulse::Pulse;
-
-#[warn(dead_code)]
 mod noise;
-use noise::Noise;
-
-#[warn(dead_code)]
+mod pulse;
+mod regs;
 mod triangle;
-use triangle::Triangle;
 
-use bytemuck::{Pod, Zeroable};
-use modular_bitfield::prelude::*;
+use self::{dmc::Dmc, noise::Noise, pulse::Pulse, regs::*, triangle::Triangle};
+
+use bytemuck::Zeroable;
 use sdl2::{
     audio::{AudioQueue, AudioSpecDesired},
     Sdl,
@@ -38,153 +27,6 @@ const LENGTH_COUNTERS: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
     192, 24, 72, 26, 16, 28, 32, 30,
 ];
-
-#[bitfield(bits = 8)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct PulseDuty {
-    volume: B4,
-    constant: bool,
-    lch: bool,
-    duty: B2,
-}
-
-#[bitfield(bits = 8)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Sweep {
-    shift_count: B3,
-    negative: bool,
-    period: B3,
-    enabled: bool,
-}
-
-#[bitfield(bits = 16)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct Timer {
-    timer: B11,
-    load: B5,
-}
-
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct PulseControl {
-    duty: PulseDuty,
-    sweep: Sweep,
-    timer: Timer,
-}
-
-#[bitfield(bits = 8)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct TriangleCounter {
-    reload: B7,
-    control: bool,
-}
-
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct TriangleControl {
-    counter: TriangleCounter,
-    _padding: u8,
-    timer: Timer,
-}
-
-#[bitfield(bits = 32)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct NoiseControl {
-    volume: B4,
-    constant: bool,
-    lch: bool,
-    #[skip]
-    __: B2,
-
-    #[skip]
-    __: B8,
-
-    period: B4,
-    #[skip]
-    __: B3,
-    mode: bool,
-
-    #[skip]
-    __: B3,
-    load: B5,
-}
-
-#[bitfield(bits = 32)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct DmcControl {
-    freq_idx: B4,
-    #[skip]
-    __: B2,
-    repeat: bool,
-    irq: bool,
-
-    direct_load: B7,
-    #[skip]
-    __: B1,
-
-    s_addr: u8,
-    s_len: u8,
-}
-
-#[bitfield(bits = 8)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct ApuControl {
-    p1_lc_en: bool,
-    p2_lc_en: bool,
-    tri_lc_en: bool,
-    noise_lc_en: bool,
-    dmc_lc_en: bool,
-    #[skip]
-    __: B3,
-}
-
-#[bitfield(bits = 8)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct ApuStatus {
-    p1_lc_st: bool,
-    p2_lc_st: bool,
-    tri_lc_st: bool,
-    noise_lc_st: bool,
-    dmc_active: bool,
-    #[skip]
-    __: B1,
-    frame_int: bool,
-    dmc_int: bool,
-}
-
-#[bitfield(bits = 8)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct FrameCounterControl {
-    #[skip]
-    __: B6,
-    disable_int: bool,
-    sequence: bool,
-}
-
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
-#[repr(C)]
-struct ApuRegs {
-    pulse1: PulseControl,
-    pulse2: PulseControl,
-    triangle: TriangleControl,
-    noise: NoiseControl,
-    dmc: DmcControl,
-    _padding1: u8,
-    control: ApuControl,
-    _padding2: u8,
-    frame_counter: FrameCounterControl,
-}
-
-static_assertions::assert_eq_size!(ApuRegs, [u8; 0x18]);
 
 #[derive(Default)]
 struct Envelope {
@@ -232,14 +74,6 @@ trait Channel {
     fn half_frame(&mut self, control: &mut Self::Control);
     fn tick(&mut self, control: &Self::Control);
     fn sample(&self, control: &Self::Control) -> u8;
-}
-
-fn inv_or_zero(n: f64) -> f64 {
-    if n == 0.0 {
-        0.0
-    } else {
-        1.0 / n
-    }
 }
 
 struct FrameCounter {
@@ -421,7 +255,7 @@ impl MemRead for Apu {
 
             status.set_dmc_active(self.dmc.has_more_bytes());
 
-            status.bytes[0]
+            bytemuck::cast(status)
         } else {
             *lane_mask = 0;
             0

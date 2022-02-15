@@ -1,4 +1,4 @@
-use super::{Channel, Envelope, PulseControl};
+use super::{regs::PulseControl, Channel, Envelope};
 
 const PULSE_SEQUENCES: [[u8; 8]; 4] = [
     [0, 0, 0, 0, 0, 0, 0, 1],
