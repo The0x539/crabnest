@@ -734,9 +734,9 @@ impl Ppu {
         let spritenum = (st.dotnum - 257) / 8;
         let sprite = st.eval_sprites[spritenum];
 
-        let mut y_offset = st.slnum as u16 - sprite.ypos as u16;
+        let mut y_offset = st.slnum as i16 - sprite.ypos as i16;
         if sprite.attr.verti_flipped() {
-            y_offset = (st.flags.sprite_size().height() as u16 - 1) - y_offset;
+            y_offset = (st.flags.sprite_size().height() as i16 - 1) - y_offset;
         };
 
         let (base, tile) = match st.flags.sprite_size() {
@@ -749,7 +749,7 @@ impl Ppu {
             }
         };
 
-        let bmp_addr = base | tile as u16 * 16 + y_offset;
+        let bmp_addr = base | (tile as i16 * 16 + y_offset) as u16;
 
         let bus = self.bus.borrow();
         match (st.dotnum - 1) % 8 {
@@ -996,7 +996,7 @@ impl MemWrite for Ppu {
                 // OAMDATA
                 let addr = state.oam_addr as usize;
                 state.oam_mut()[addr] = val;
-                state.oam_addr += 1;
+                state.oam_addr = state.oam_addr.wrapping_add(1);
             }
 
             5 => {
