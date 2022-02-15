@@ -49,22 +49,32 @@ impl Pulse {
         let raw_period = control.timer.timer();
         let change_amount = raw_period >> control.sweep.shift_count();
         match (control.sweep.negative(), self.is_pulse2) {
-            (true, true) => raw_period - change_amount - 1,
-            (true, false) => raw_period - change_amount,
+            (true, false) => raw_period - change_amount - 1,
+            (true, true) => raw_period - change_amount,
             (false, _) => raw_period + change_amount,
         }
     }
 
+    fn muted(&self, control: &PulseControl) -> bool {
+        control.timer.timer() < 8 || self.target_period(control) > 0x7FF
+    }
+
     fn update_period(&mut self, control: &mut PulseControl) {
         let period = self.target_period(control);
-        if control.sweep.enabled() && self.sweep_counter == 0 && period <= 0x07FF {
-            control.timer.set_timer(period);
-        }
+
         if self.sweep_counter == 0 || self.reload_sweep {
             self.reload_sweep = false;
-            self.sweep_counter = control.sweep.period();
+            self.sweep_counter = control.sweep.period() + 1;
         } else {
             self.sweep_counter -= 1;
+        }
+
+        if self.sweep_counter == 0
+            && control.sweep.enabled()
+            && !self.muted(control)
+            && control.sweep.shift_count() != 0
+        {
+            control.timer.set_timer(period);
         }
     }
 }
@@ -91,10 +101,8 @@ impl Channel for Pulse {
     }
 
     fn tick(&mut self, control: &Self::Control) {
-        let period = control.timer.timer();
-
         if self.timer == 0 {
-            self.timer = period;
+            self.timer = control.timer.timer();
             self.sequence_pos = self.sequence_pos.checked_sub(1).unwrap_or(7);
         } else {
             self.timer -= 1;
@@ -104,11 +112,7 @@ impl Channel for Pulse {
     }
 
     fn sample(&self, control: &Self::Control) -> u8 {
-        if self.length_counter == 0 {
-            return 0;
-        }
-
-        if control.timer.timer() < 8 || self.target_period(control) > 0x07FF {
+        if self.length_counter == 0 || self.muted(control) {
             return 0;
         }
 
