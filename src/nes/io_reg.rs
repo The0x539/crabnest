@@ -6,7 +6,9 @@ use std::path::Path;
 use std::{cell::Cell, rc::Rc};
 
 use ouroboros::self_referencing;
+use sdl2::controller::{Button, GameController};
 use sdl2::keyboard::KeyboardState;
+use sdl2::Sdl;
 use sdl2::{keyboard::Scancode, EventPump};
 
 use crate::membus::{MemBus, MemRead, MemWrite};
@@ -17,6 +19,16 @@ use crate::{r, R};
 
 // A, B, SELECT, START, UP, DOWN, LEFT, RIGHT
 pub const CONTROLLER_NBUTTONS: usize = 8;
+const GAMEPAD_MAPPINGS: [Button; CONTROLLER_NBUTTONS] = [
+    Button::A,
+    Button::B,
+    Button::Back,
+    Button::Start,
+    Button::DPadUp,
+    Button::DPadDown,
+    Button::DPadLeft,
+    Button::DPadRight,
+];
 
 const FOURSCORE_SIGNATURE: [u32; 2] = [0b00001000, 0b00000100];
 
@@ -24,15 +36,19 @@ struct WorldAccess {
     tk: R<Timekeeper>,
     event_pump: R<EventPump>,
     keyboard_mappings: [[Scancode; 4]; CONTROLLER_NBUTTONS],
+    controllers: Vec<GameController>,
 }
 
 impl WorldAccess {
     fn input_state(&mut self) -> InputState<'_> {
         self.tk.borrow_mut().sync();
         let event_pump = self.event_pump.borrow_mut();
-        InputState::new(event_pump, &self.keyboard_mappings, |pump| {
-            pump.keyboard_state()
-        })
+        InputState::new(
+            event_pump,
+            &self.keyboard_mappings,
+            &self.controllers,
+            |pump| pump.keyboard_state(),
+        )
     }
 }
 
@@ -40,6 +56,7 @@ impl WorldAccess {
 struct InputState<'a> {
     event_pump: std::cell::RefMut<'a, EventPump>,
     keyboard_mappings: &'a [[Scancode; 4]; CONTROLLER_NBUTTONS],
+    controllers: &'a [GameController],
     #[borrows(event_pump)]
     #[covariant]
     keyboard_state: KeyboardState<'this>,
@@ -47,8 +64,15 @@ struct InputState<'a> {
 
 impl InputState<'_> {
     fn pressed(&self, player: usize, button: usize) -> bool {
-        let scancode = self.borrow_keyboard_mappings()[button][player];
-        self.borrow_keyboard_state().is_scancode_pressed(scancode)
+        self.with(|this| {
+            if let Some(controller) = this.controllers.get(player) {
+                if controller.button(GAMEPAD_MAPPINGS[button]) {
+                    return true;
+                }
+            }
+            let scancode = this.keyboard_mappings[button][player];
+            this.keyboard_state.is_scancode_pressed(scancode)
+        })
     }
 }
 
@@ -65,6 +89,7 @@ impl IoReg {
     pub fn new(
         rm: &R<ResetManager>,
         cpu: &mut Mos6502,
+        sdl: &Sdl,
         event_pump: R<EventPump>,
         cscheme_path: &Path,
     ) -> io::Result<R<Self>> {
@@ -94,11 +119,29 @@ impl IoReg {
             }
         }
 
+        let controller_subsystem = sdl
+            .game_controller()
+            .expect("Couldn't initialize controller subsystem");
+
+        let num_controllers = controller_subsystem
+            .num_joysticks()
+            .expect("Couldn't get controller count")
+            .min(4);
+
+        let controllers = (0..num_controllers)
+            .map(|n| {
+                controller_subsystem
+                    .open(n)
+                    .expect("Couldn't open controller")
+            })
+            .collect::<Vec<_>>();
+
         let io = r(Self {
             cpu_mem: cpu.bus.clone(),
             world: WorldAccess {
                 tk: cpu.tk.clone(),
                 event_pump,
+                controllers,
                 keyboard_mappings,
             },
             #[cfg(feature = "cyclecheck")]

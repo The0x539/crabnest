@@ -124,7 +124,7 @@ fn setup_common(
 
     let event_pump = r(sdl.event_pump().expect("Could not set up event pump"));
 
-    let io_reg = IoReg::new(rm, cpu, event_pump.clone(), cscheme_path)?;
+    let io_reg = IoReg::new(rm, cpu, sdl, event_pump.clone(), cscheme_path)?;
 
     let apu = Apu::new(sdl, rm, cpu);
 
