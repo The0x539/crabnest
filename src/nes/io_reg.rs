@@ -15,12 +15,15 @@ use crate::reset_manager::{Reset, ResetManager};
 use crate::timekeeper::Timekeeper;
 use crate::{r, R};
 
+// A, B, SELECT, START, UP, DOWN, LEFT, RIGHT
 pub const CONTROLLER_NBUTTONS: usize = 8;
+
+const FOURSCORE_SIGNATURE: [u32; 2] = [0b00001000, 0b00000100];
 
 struct WorldAccess {
     tk: R<Timekeeper>,
     event_pump: R<EventPump>,
-    keyboard_mappings: [[Scancode; 2]; CONTROLLER_NBUTTONS],
+    keyboard_mappings: [[Scancode; 4]; CONTROLLER_NBUTTONS],
 }
 
 impl WorldAccess {
@@ -36,7 +39,7 @@ impl WorldAccess {
 #[self_referencing]
 struct InputState<'a> {
     event_pump: std::cell::RefMut<'a, EventPump>,
-    keyboard_mappings: &'a [[Scancode; 2]; CONTROLLER_NBUTTONS],
+    keyboard_mappings: &'a [[Scancode; 4]; CONTROLLER_NBUTTONS],
     #[borrows(event_pump)]
     #[covariant]
     keyboard_state: KeyboardState<'this>,
@@ -55,7 +58,7 @@ pub struct IoReg {
     #[cfg(feature = "cyclecheck")]
     cpu_last_takeover_delay: Rc<Cell<u64>>,
     controller_strobe: bool,
-    controller_shiftregs: [u8; 2],
+    controller_shiftregs: [u32; 2],
 }
 
 impl IoReg {
@@ -65,16 +68,23 @@ impl IoReg {
         event_pump: R<EventPump>,
         cscheme_path: &Path,
     ) -> io::Result<R<Self>> {
-        let mut keyboard_mappings = [[Scancode::A; 2]; CONTROLLER_NBUTTONS];
+        let mut keyboard_mappings = [[Scancode::A; 4]; CONTROLLER_NBUTTONS];
 
         let mut f = BufReader::new(File::open(cscheme_path)?);
 
         let mut line_buffer = String::new();
-        for playernum in 0..2 {
+        'eof: for playernum in 0..4 {
             for buttonnum in 0..CONTROLLER_NBUTTONS {
                 line_buffer.clear();
-                f.read_line(&mut line_buffer)?;
+                match f.read_line(&mut line_buffer) {
+                    Ok(_) => (),
+                    Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break 'eof,
+                    Err(e) => return Err(e),
+                }
                 let line = line_buffer.trim_end();
+                if line.is_empty() {
+                    break 'eof;
+                }
 
                 let err_msg = || format!("Error parsing {cscheme_path:?}: unknown key '{line}'");
                 let err = || io::Error::new(io::ErrorKind::InvalidData, err_msg());
@@ -103,13 +113,13 @@ impl IoReg {
 
     fn set_strobe(&mut self, val: bool) {
         if self.controller_strobe && !val {
+            self.controller_shiftregs = FOURSCORE_SIGNATURE;
             let input = self.world.input_state();
-            for player in (0..2).rev() {
+            for player in [2, 3, 0, 1] {
                 for button in (0..CONTROLLER_NBUTTONS).rev() {
-                    let index = player % 2; // anticipating 4-player support
-                    let bit = input.pressed(player, button) as u8;
-                    self.controller_shiftregs[index] <<= 1;
-                    self.controller_shiftregs[index] |= bit;
+                    let bit = input.pressed(player, button);
+                    let reg = &mut self.controller_shiftregs[player % 2];
+                    *reg = (*reg << 1) | bit as u32;
                 }
             }
         }
@@ -131,16 +141,16 @@ impl MemRead for IoReg {
                 let i = addr as usize - 0x16;
                 *lanemask = 0x1F;
 
-                let bit: u8;
+                let bit;
                 if self.controller_strobe {
                     let input = self.world.input_state();
-                    bit = input.pressed(i, 0 /* A */) as u8;
+                    bit = input.pressed(i, 0 /* A */);
                 } else {
-                    bit = self.controller_shiftregs[i] & 0x01;
+                    bit = self.controller_shiftregs[i] & 0x01 != 0;
                     self.controller_shiftregs[i] >>= 1;
                 }
 
-                bit
+                bit as u8
             }
             _ => {
                 *lanemask = 0x00;
