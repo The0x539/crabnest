@@ -221,19 +221,19 @@ impl Apu {
         let apu = r(apu);
 
         let mut tk = cpu.tk.borrow_mut();
-        tk.add_timer(r(ApuCycleTimer {
+        tk.add_timer(ApuCycleTimer {
             apu: apu.clone(),
             even_cycle: false,
             countdown: mos6502::CLK_DIVISOR,
-        }));
-        tk.add_timer(r(ApuFrameTimer {
+        });
+        tk.add_timer(ApuFrameTimer {
             apu: apu.clone(),
             countdown: QUARTER_FRAME,
-        }));
-        tk.add_timer(r(ApuSampleTimer {
+        });
+        tk.add_timer(ApuSampleTimer {
             apu: apu.clone(),
             countdown: 487,
-        }));
+        });
 
         apu
     }
@@ -323,7 +323,7 @@ impl MemWrite for Apu {
     }
 }
 
-struct ApuCycleTimer {
+pub struct ApuCycleTimer {
     apu: R<Apu>,
     even_cycle: bool,
     countdown: u64,
@@ -370,16 +370,16 @@ impl Timed for ApuCycleTimer {
         self.even_cycle = !self.even_cycle;
     }
 
-    fn countdown(&self) -> &u64 {
-        &self.countdown
+    fn countdown(&self) -> u64 {
+        self.countdown
     }
 
-    fn countdown_mut(&mut self) -> &mut u64 {
-        &mut self.countdown
+    fn advance_countdown(&mut self, n: u64) {
+        self.countdown -= n;
     }
 }
 
-struct ApuFrameTimer {
+pub struct ApuFrameTimer {
     apu: R<Apu>,
     countdown: u64,
 }
@@ -390,16 +390,16 @@ impl Timed for ApuFrameTimer {
         self.apu.borrow_mut().do_frame_tick();
     }
 
-    fn countdown(&self) -> &u64 {
-        &self.countdown
+    fn countdown(&self) -> u64 {
+        self.countdown
     }
 
-    fn countdown_mut(&mut self) -> &mut u64 {
-        &mut self.countdown
+    fn advance_countdown(&mut self, n: u64) {
+        self.countdown -= n;
     }
 }
 
-struct ApuSampleTimer {
+pub struct ApuSampleTimer {
     apu: R<Apu>,
     countdown: u64,
 }
@@ -410,11 +410,11 @@ impl Timed for ApuSampleTimer {
         self.apu.borrow_mut().mix_sample();
     }
 
-    fn countdown(&self) -> &u64 {
-        &self.countdown
+    fn countdown(&self) -> u64 {
+        self.countdown
     }
 
-    fn countdown_mut(&mut self) -> &mut u64 {
-        &mut self.countdown
+    fn advance_countdown(&mut self, n: u64) {
+        self.countdown -= n;
     }
 }

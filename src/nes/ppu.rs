@@ -819,6 +819,34 @@ impl Ppu {
             mmc3.line.raise();
         }
     }
+
+    fn tick(&mut self) {
+        self.state.clk_countdown = CLK_DIVISOR;
+
+        if self.state.slnum == 241 && self.state.dotnum == 1 {
+            self.state.flags.set_vblank(true);
+            if self.state.flags.nmi_en() {
+                self.nmi_line.raise();
+            }
+            self.present_frame();
+            self.state.decay_latch = 0;
+        }
+
+        self.state.set_delayed_regs();
+        self.state.clear_regs();
+
+        self.memfetch();
+        self.update_a12();
+        self.state.load_shiftregs();
+        self.state.shift_shiftregs();
+        self.state.update_vram_addr();
+        self.state.spriteeval();
+
+        self.draw_pixel();
+
+        // TODO: should this be moved up and stuff shifted by 1 cycle?
+        self.state.move_cursor();
+    }
 }
 
 impl Reset for Ppu {
@@ -849,41 +877,15 @@ impl Reset for Ppu {
     }
 }
 
-impl Timed for Ppu {
+impl Timed for R<Ppu> {
     fn fire(&mut self) {
-        self.state.clk_countdown = CLK_DIVISOR;
-
-        if self.state.slnum == 241 && self.state.dotnum == 1 {
-            self.state.flags.set_vblank(true);
-            if self.state.flags.nmi_en() {
-                self.nmi_line.raise();
-            }
-            self.present_frame();
-            self.state.decay_latch = 0;
-        }
-
-        self.state.set_delayed_regs();
-        self.state.clear_regs();
-
-        self.memfetch();
-        self.update_a12();
-        self.state.load_shiftregs();
-        self.state.shift_shiftregs();
-        self.state.update_vram_addr();
-        self.state.spriteeval();
-
-        self.draw_pixel();
-
-        // TODO: should this be moved up and stuff shifted by 1 cycle?
-        self.state.move_cursor();
+        self.borrow_mut().tick()
     }
-
-    fn countdown(&self) -> &u64 {
-        &self.state.clk_countdown
+    fn countdown(&self) -> u64 {
+        self.borrow().state.clk_countdown
     }
-
-    fn countdown_mut(&mut self) -> &mut u64 {
-        &mut self.state.clk_countdown
+    fn advance_countdown(&mut self, n: u64) {
+        self.borrow_mut().state.clk_countdown -= n;
     }
 }
 

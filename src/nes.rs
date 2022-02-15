@@ -1,9 +1,9 @@
 mod a12_watcher;
-mod apu;
+pub(crate) mod apu;
 pub(super) mod ines;
 mod io_reg;
 mod pageforty;
-mod ppu;
+pub(crate) mod ppu;
 
 mod mapper {
     pub(super) mod axrom;

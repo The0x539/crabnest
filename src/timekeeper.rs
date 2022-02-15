@@ -1,16 +1,31 @@
 use std::time::{Duration, Instant};
 
+use enum_dispatch::enum_dispatch;
+
+use crate::nes::{
+    apu::{ApuCycleTimer, ApuFrameTimer, ApuSampleTimer},
+    ppu::Ppu,
+};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::{r, R};
 
-pub trait Timed: 'static {
+#[enum_dispatch]
+pub trait Timed: 'static + Into<TimedImpl> {
     fn fire(&mut self);
-    fn countdown(&self) -> &u64;
-    fn countdown_mut(&mut self) -> &mut u64; // ?
+    fn countdown(&self) -> u64;
+    fn advance_countdown(&mut self, n: u64);
+}
+
+#[enum_dispatch(Timed)]
+pub enum TimedImpl {
+    ApuCycleTimer,
+    ApuFrameTimer,
+    ApuSampleTimer,
+    Ppu(R<Ppu>),
 }
 
 pub struct Timekeeper {
-    timers: Vec<R<dyn Timed>>,
+    timers: Vec<TimedImpl>,
 
     t_ref: Instant,
     t_pause: Instant,
@@ -35,25 +50,21 @@ impl Timekeeper {
         tk
     }
 
-    pub fn add_timer(&mut self, timer: R<impl Timed>) {
-        self.timers.push(timer as _);
+    pub fn add_timer(&mut self, timer: impl Timed) {
+        self.timers.push(timer.into());
     }
 
     pub fn advance_clk(&mut self, ncycles: u64) {
-        let mincount = self
-            .timers
-            .iter()
-            .map(|t| *t.borrow().countdown())
-            .chain(std::iter::once(ncycles))
-            .min()
-            .unwrap();
+        let mut mincount = ncycles;
+        for timer in &self.timers {
+            mincount = mincount.min(timer.countdown());
+        }
 
         self.clk_cyclenum += mincount;
 
-        for timer in &self.timers {
-            let mut timer = timer.borrow_mut();
-            *timer.countdown_mut() -= mincount;
-            if *timer.countdown() == 0 {
+        for timer in &mut self.timers {
+            timer.advance_countdown(mincount);
+            if timer.countdown() == 0 {
                 timer.fire();
             }
         }
