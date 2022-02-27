@@ -10,6 +10,8 @@ use crate::{
     {r, R},
 };
 
+mapper!(004, setup);
+
 #[derive(BitfieldSpecifier)]
 enum A12Inversion {
     TwoFour = 0,

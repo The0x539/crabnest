@@ -11,7 +11,7 @@ use crate::mos6502::Mos6502;
 use crate::reset_manager::ResetManager;
 use crate::{r, R};
 
-use super::{apu::Apu, io_reg::IoReg, ppu::Ppu};
+use super::{apu::Apu, io_reg::IoReg, mapper::Mapper, ppu::Ppu};
 
 mod header;
 pub use header::Mirroring;
@@ -99,17 +99,13 @@ pub fn rom_load(
         vram_sels,
     };
 
-    use super::mapper::*;
+    let mapper_id = header.mapper();
+    Mapper::get(mapper_id)
+        .ok_or_else(|| e(&format!("Unsupported mapper: {mapper_id}")))?
+        .setup(info)
+        .map_err(e)?;
 
-    let setup = match header.mapper() {
-        0 => nrom::setup,
-        1 => sxrom::setup,
-        2 => uxrom::setup,
-        4 => mmc3::setup,
-        7 => axrom::setup,
-        _ => unreachable!(),
-    };
-    setup(info).map_err(e)
+    Ok(())
 }
 
 fn setup_common(

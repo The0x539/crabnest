@@ -9,6 +9,8 @@ use crate::{
 use super::mmc1::{Mirroring, Mmc1};
 use crate::nes::ines::RomInfo;
 
+mapper!(001, setup);
+
 struct SxRom {
     mmc1: Mmc1,
     tk: R<Timekeeper>,
@@ -68,7 +70,7 @@ impl SxRom {
     }
 }
 
-pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
+fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
     let RomInfo {
         rm,
         cpu,

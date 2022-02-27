@@ -1,6 +1,8 @@
 use crate::nes::ines::RomInfo;
 
-pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
+mapper!(000, setup);
+
+fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
     if !matches!(
         info.prg_ram.as_ref().map(|r| r.size()),
         None | Some(0x0800 | 0x1000 | 0x2000),

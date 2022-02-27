@@ -5,6 +5,8 @@ use crate::{
     reset_manager::Reset,
 };
 
+mapper!(002, setup);
+
 struct UxRom {
     prg_sel: BankSel,
 }
@@ -21,7 +23,7 @@ impl Reset for UxRom {
     }
 }
 
-pub fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
+fn setup(info: RomInfo<'_>) -> Result<(), &'static str> {
     let RomInfo {
         rm,
         cpu,
