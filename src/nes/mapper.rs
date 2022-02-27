@@ -9,11 +9,13 @@ macro_rules! mapper {
     };
 }
 
-mod axrom;
 mod mmc1;
 pub(super) mod mmc3;
+
+mod axrom;
 mod nrom;
 mod sxrom;
+mod txrom;
 mod uxrom;
 
 type SetupFn = fn(RomInfo<'_>) -> Result<(), &'static str>;
