@@ -26,12 +26,7 @@ const NES_NTSC_SYSCLK: f64 = 236.25 / 11. * 1_000_000.;
 const HAWKNEST_MAGIC: [u8; 4] = [b'H', b'K', b'N', b'S'];
 const INES_MAGIC: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
 
-fn hawknest_rom_load(
-    f: File,
-    _path: &Path,
-    rm: &R<ResetManager>,
-    cpu: &mut Mos6502,
-) -> io::Result<()> {
+fn hawknest_rom_load(f: File, rm: &R<ResetManager>, cpu: &mut Mos6502) -> io::Result<()> {
     cpu.paravirt = true;
 
     let bus = &mut *cpu.bus.borrow_mut();
@@ -51,8 +46,8 @@ fn load_rom(
     sdl: &Sdl,
     rm: &R<ResetManager>,
     cpu: &mut Mos6502,
-    palette_path: &Path,
-    cscheme_path: &Path,
+    palette_path: Option<&Path>,
+    cscheme_path: Option<&Path>,
     scale: u32,
 ) -> io::Result<()> {
     let mut f = File::open(path)?;
@@ -60,7 +55,7 @@ fn load_rom(
     let mut magic = [0u8; 4];
     f.read_exact(&mut magic)?;
     if magic == HAWKNEST_MAGIC {
-        hawknest_rom_load(f, path, rm, cpu)?;
+        hawknest_rom_load(f, rm, cpu)?;
         Ok(())
     } else if magic == INES_MAGIC {
         nes::ines::rom_load(f, sdl, rm, cpu, palette_path, cscheme_path, scale)?;
@@ -80,13 +75,13 @@ struct Args {
     #[clap(short, long)]
     interactive: bool,
     /// Use the NES palette at <PATH>
-    #[clap(short, long, value_name = "PATH", default_value = "palette")]
-    palette: PathBuf,
+    #[clap(short, long, value_name = "PATH")]
+    palette: Option<PathBuf>,
     /// Use the NES controller scheme at <PATH>
-    #[clap(short, long, value_name = "PATH", default_value = "cscheme")]
-    cscheme: PathBuf,
+    #[clap(short, long, value_name = "PATH")]
+    cscheme: Option<PathBuf>,
     /// Scale the NES output by <INT>
-    #[clap(short, long, value_name = "INT", default_value = "1")]
+    #[clap(short, long, value_name = "INT", default_value = "3")]
     scale: u32,
 
     rom_path: PathBuf,
@@ -115,8 +110,8 @@ fn main() -> io::Result<()> {
         &sdl,
         &rm,
         &mut cpu,
-        &args.palette,
-        &args.cscheme,
+        args.palette.as_deref(),
+        args.cscheme.as_deref(),
         args.scale,
     )?;
 

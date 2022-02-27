@@ -106,31 +106,40 @@ impl IoReg {
         cpu: &mut Mos6502,
         sdl: &Sdl,
         event_pump: R<EventPump>,
-        cscheme_path: &Path,
+        cscheme_path: Option<&Path>,
     ) -> io::Result<R<Self>> {
         let mut keyboard_mappings = [[Scancode::A; 4]; CONTROLLER_NBUTTONS];
 
-        let mut f = BufReader::new(File::open(cscheme_path)?);
+        if let Some(p) = cscheme_path {
+            let mut f = BufReader::new(File::open(p)?);
 
-        let mut line_buffer = String::new();
-        'eof: for playernum in 0..4 {
-            for buttonnum in 0..CONTROLLER_NBUTTONS {
-                line_buffer.clear();
-                match f.read_line(&mut line_buffer) {
-                    Ok(_) => (),
-                    Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break 'eof,
-                    Err(e) => return Err(e),
+            let mut line_buffer = String::new();
+            'eof: for playernum in 0..4 {
+                for buttonnum in 0..CONTROLLER_NBUTTONS {
+                    line_buffer.clear();
+                    match f.read_line(&mut line_buffer) {
+                        Ok(_) => (),
+                        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break 'eof,
+                        Err(e) => return Err(e),
+                    }
+                    let line = line_buffer.trim_end();
+                    if line.is_empty() {
+                        break 'eof;
+                    }
+
+                    let err_msg =
+                        || format!("Error parsing {cscheme_path:?}: unknown key '{line}'");
+                    let err = || io::Error::new(io::ErrorKind::InvalidData, err_msg());
+
+                    let scancode = Scancode::from_name(line).ok_or_else(err)?;
+                    keyboard_mappings[buttonnum][playernum] = scancode;
                 }
-                let line = line_buffer.trim_end();
-                if line.is_empty() {
-                    break 'eof;
-                }
-
-                let err_msg = || format!("Error parsing {cscheme_path:?}: unknown key '{line}'");
-                let err = || io::Error::new(io::ErrorKind::InvalidData, err_msg());
-
-                let scancode = Scancode::from_name(line).ok_or_else(err)?;
-                keyboard_mappings[buttonnum][playernum] = scancode;
+            }
+        } else {
+            use Scancode::*;
+            let p1_keys = [Z, X, Delete, Return, Up, Down, Left, Right];
+            for (i, sc) in p1_keys.into_iter().enumerate() {
+                keyboard_mappings[i][0] = sc;
             }
         }
 

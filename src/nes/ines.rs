@@ -33,8 +33,8 @@ pub fn rom_load(
     sdl: &Sdl,
     rm: &R<ResetManager>,
     cpu: &mut Mos6502,
-    palette_path: &Path,
-    cscheme_path: &Path,
+    palette_path: Option<&Path>,
+    cscheme_path: Option<&Path>,
     scale: u32,
 ) -> io::Result<()> {
     let mut header = header::GenericHeader::zeroed();
@@ -112,8 +112,8 @@ fn setup_common(
     sdl: &Sdl,
     rm: &R<ResetManager>,
     cpu: &mut Mos6502,
-    palette_path: &Path,
-    cscheme_path: &Path,
+    palette_path: Option<&Path>,
+    cscheme_path: Option<&Path>,
     scale: u32,
 ) -> io::Result<R<Ppu>> {
     let ram = Memory::new(rm, 0x0800, true);
@@ -129,10 +129,15 @@ fn setup_common(
 
     let ppu = Ppu::new(sdl, rm, cpu, event_pump, scale);
 
-    let mut f = File::open(palette_path)?;
-    f.read_exact(bytemuck::bytes_of_mut(
-        &mut ppu.borrow_mut().state.palette_srgb,
-    ))?;
+    {
+        let mut ppu_ref = ppu.borrow_mut();
+        let palette_data = bytemuck::bytes_of_mut(&mut ppu_ref.state.palette_srgb);
+        if let Some(p) = palette_path {
+            File::open(p)?.read_exact(palette_data)?;
+        } else {
+            palette_data.copy_from_slice(include_bytes!("../../res/palette"));
+        }
+    }
 
     Ok(ppu)
 }
