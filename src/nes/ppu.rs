@@ -14,7 +14,7 @@ use crate::membus::{MemBus, MemRead, MemWrite};
 use crate::mos6502::{Mos6502, NmiLine};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::timekeeper::Timed;
-use crate::util::{r, R};
+use crate::util::{r, ArrayVec, R};
 
 use super::{a12_watcher::Edge, mapper::mmc3::Mmc3Irq};
 
@@ -108,13 +108,19 @@ struct SpriteAttrs {
     verti_flipped: bool,
 }
 
-#[derive(Debug, Default, Copy, Clone, Zeroable, Pod)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Sprite {
     ypos: u8,
     tile: u8,
     attr: SpriteAttrs,
     xpos: u8,
+}
+
+impl Default for Sprite {
+    fn default() -> Self {
+        bytemuck::cast::<u32, Self>(0xFFFF_FFFF)
+    }
 }
 
 #[bitfield(bits = 8)]
@@ -263,11 +269,10 @@ pub struct PpuState {
     sprite_attrs: [SpriteAttrs; 8],
     sprite_xs: [u8; 8],
 
-    eval_nsprites: u8,
-    eval_sprites: [Sprite; 8],
-
     oam_addr: u8,
-    sprites: [Sprite; 64],
+    primary_oam: [Sprite; 64],
+
+    secondary_oam: ArrayVec<Sprite, 8>,
 
     palette_mem: [u8; 32],
     pub palette_srgb: [[u8; 3]; 512],
@@ -380,8 +385,8 @@ impl PpuState {
 
         let mut cycles = 0;
 
-        bytemuck::bytes_of_mut(&mut self.eval_sprites).fill(0xFF);
-        self.eval_nsprites = 0;
+        // I *think* we can get away with not actually FF-filling here.
+        self.secondary_oam.clear();
 
         cycles += 64;
 
@@ -390,17 +395,16 @@ impl PpuState {
         self.flags.set_next_scanline_has_sprite0(false);
 
         let mut n = 0;
-        while n < 64 && self.eval_nsprites < 8 {
+        while n < 64 && !self.secondary_oam.is_full() {
             cycles += 2;
-            let sprite = &self.sprites[n];
+            let sprite = &self.primary_oam[n];
             if self.sprite_in_range(sprite.ypos) {
                 cycles += 6;
                 if n == 0 {
                     self.flags.set_next_scanline_has_sprite0(true);
                 }
 
-                self.eval_sprites[self.eval_nsprites as usize] = *sprite;
-                self.eval_nsprites += 1;
+                self.secondary_oam.push(*sprite);
             }
             n += 1;
         }
@@ -542,11 +546,11 @@ impl PpuState {
     }
 
     fn oam(&self) -> &[u8] {
-        bytemuck::bytes_of(&self.sprites)
+        bytemuck::bytes_of(&self.primary_oam)
     }
 
     fn oam_mut(&mut self) -> &mut [u8] {
-        bytemuck::bytes_of_mut(&mut self.sprites)
+        bytemuck::bytes_of_mut(&mut self.primary_oam)
     }
 
     fn inc_vram_addr_rw(&mut self) {
@@ -732,7 +736,7 @@ impl Ppu {
         let st = &mut self.state;
 
         let spritenum = (st.dotnum - 257) / 8;
-        let sprite = st.eval_sprites[spritenum];
+        let sprite = st.secondary_oam.get(spritenum).copied().unwrap_or_default();
 
         let mut y_offset = st.slnum as i16 - sprite.ypos as i16;
         if sprite.attr.verti_flipped() {
@@ -762,7 +766,7 @@ impl Ppu {
                 if sprite.attr.horiz_flipped() {
                     *shiftreg = shiftreg.reverse_bits();
                 }
-                if spritenum >= st.eval_nsprites as usize {
+                if spritenum >= st.secondary_oam.len() {
                     *shiftreg = 0;
                 }
             }
@@ -773,7 +777,7 @@ impl Ppu {
                 if sprite.attr.horiz_flipped() {
                     *shiftreg = shiftreg.reverse_bits();
                 }
-                if spritenum >= st.eval_nsprites as usize {
+                if spritenum >= st.secondary_oam.len() {
                     *shiftreg = 0;
                 }
 
@@ -869,7 +873,7 @@ impl Reset for Ppu {
 
             fine_xscroll: 0,
 
-            sprites: Zeroable::zeroed(),
+            primary_oam: Zeroable::zeroed(),
             palette_mem: Zeroable::zeroed(),
 
             ..self.state
