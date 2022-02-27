@@ -620,11 +620,6 @@ impl Ppu {
             .expect("Could not enable integer scaling");
 
         let tex_cre = canvas.texture_creator();
-        // TODO: ndarray? image?
-        let buf = vec![[[0_u8; 4]; OUTPUT_WIDTH as usize]; OUTPUT_HEIGHT as usize]
-            .into_boxed_slice()
-            .try_into()
-            .unwrap();
         let ppu_sdl = PpuSdl::new(
             canvas,
             tex_cre,
@@ -632,7 +627,7 @@ impl Ppu {
                 tc.create_texture_streaming(PixelFormatEnum::ABGR8888, OUTPUT_WIDTH, OUTPUT_HEIGHT)
                     .expect("Could not create texture")
             },
-            buf,
+            bytemuck::allocation::zeroed_box(),
         );
 
         let ppu = r(Ppu {
