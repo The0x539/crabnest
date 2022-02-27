@@ -1,6 +1,6 @@
 use super::{apu::Apu, io_reg::IoReg};
 use crate::membus::{MemBus, MemRead, MemWrite};
-use crate::{r, R};
+use crate::util::{r, R};
 
 pub struct PageForty {
     pub io_reg: R<IoReg>,

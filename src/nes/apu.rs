@@ -15,10 +15,9 @@ use sdl2::{
 use crate::{
     membus::{MemRead, MemWrite},
     mos6502::{self, IrqLine, Mos6502},
-    r,
     reset_manager::ResetManager,
     timekeeper::Timed,
-    R,
+    util::{r, R},
 };
 
 const QUARTER_FRAME: u64 = 358000 / 4;

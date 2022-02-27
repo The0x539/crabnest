@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use crate::memory::MemInner;
 use crate::reset_manager::{Reset, ResetManager};
-use crate::{r, R};
+use crate::util::{r, R};
 
 pub const PAGESIZE: usize = 256;
 pub const NPAGES: usize = 256;

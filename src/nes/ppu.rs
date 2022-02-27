@@ -14,7 +14,7 @@ use crate::membus::{MemBus, MemRead, MemWrite};
 use crate::mos6502::{Mos6502, NmiLine};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::timekeeper::Timed;
-use crate::{r, R};
+use crate::util::{r, R};
 
 use super::{a12_watcher::Edge, mapper::mmc3::Mmc3Irq};
 

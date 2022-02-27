@@ -1,7 +1,7 @@
 use crate::{
     membus::MemBus,
     mos6502::{IrqLine, Mos6502},
-    R,
+    util::R,
 };
 
 const DMC_RATES: [u16; 16] = [

@@ -6,7 +6,7 @@ use bitflags::bitflags;
 use crate::membus::MemBus;
 use crate::reset_manager::ResetManager;
 use crate::timekeeper::Timekeeper;
-use crate::R;
+use crate::util::R;
 
 mod isa;
 mod vmcall;

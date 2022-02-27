@@ -15,7 +15,7 @@ use crate::membus::{MemBus, MemRead, MemWrite};
 use crate::mos6502::{self, Mos6502};
 use crate::reset_manager::{Reset, ResetManager};
 use crate::timekeeper::Timekeeper;
-use crate::{r, R};
+use crate::util::{r, R};
 
 // A, B, SELECT, START, UP, DOWN, LEFT, RIGHT
 pub const CONTROLLER_NBUTTONS: usize = 8;

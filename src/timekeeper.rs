@@ -7,7 +7,7 @@ use crate::nes::{
     ppu::Ppu,
 };
 use crate::reset_manager::{Reset, ResetManager};
-use crate::{r, R};
+use crate::util::{r, R};
 
 #[enum_dispatch]
 pub trait Timed: 'static + Into<TimedImpl> {

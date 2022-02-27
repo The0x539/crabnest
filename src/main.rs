@@ -1,10 +1,8 @@
 #![deny(rust_2018_idioms)]
 
-use std::cell::RefCell;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 
 use clap::Parser;
 use sdl2::Sdl;
@@ -16,16 +14,13 @@ mod nes;
 mod reset_manager;
 mod shell;
 mod timekeeper;
+mod util;
 
 use memory::Memory;
 use mos6502::Mos6502;
 use reset_manager::ResetManager;
 use timekeeper::Timekeeper;
-
-type R<T> = Rc<RefCell<T>>;
-fn r<T>(val: T) -> R<T> {
-    Rc::new(RefCell::new(val))
-}
+use util::R;
 
 const NES_NTSC_SYSCLK: f64 = 236.25 / 11. * 1_000_000.;
 const HAWKNEST_MAGIC: [u8; 4] = [b'H', b'K', b'N', b'S'];

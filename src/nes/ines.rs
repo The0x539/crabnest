@@ -9,7 +9,7 @@ use crate::membus::BankSel;
 use crate::memory::Memory;
 use crate::mos6502::Mos6502;
 use crate::reset_manager::ResetManager;
-use crate::{r, R};
+use crate::util::{r, R};
 
 use super::{apu::Apu, io_reg::IoReg, mapper::Mapper, ppu::Ppu};
 

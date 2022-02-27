@@ -2,7 +2,7 @@ use crate::{
     membus::{BankSel, MemWrite},
     nes::{a12_watcher::A12Watcher, ines::RomInfo},
     reset_manager::Reset,
-    {r, R},
+    util::{r, R},
 };
 
 use super::mmc3::{A12Inversion, BankSelect, Mmc3Irq, PrgRamProtection, PrgRomFixation};

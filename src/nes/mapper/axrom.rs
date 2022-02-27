@@ -1,8 +1,8 @@
 use crate::{
     membus::{BankSel, MemWrite},
     nes::ines::RomInfo,
-    r,
     reset_manager::Reset,
+    util::r,
 };
 
 mapper!(007, setup);

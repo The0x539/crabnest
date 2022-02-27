@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 
 use crate::membus::{self, BankSel, MemBus};
 use crate::reset_manager::{Reset, ResetManager};
-use crate::{r, R};
+use crate::util::{r, R};
 
 pub struct MemInner {
     bytes: Vec<u8>,

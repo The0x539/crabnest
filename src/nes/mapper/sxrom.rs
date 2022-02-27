@@ -1,9 +1,9 @@
 use crate::{
     membus::{BankSel, MemWrite},
-    mos6502, r,
+    mos6502,
     reset_manager::Reset,
     timekeeper::Timekeeper,
-    R,
+    util::{r, R},
 };
 
 use super::mmc1::{Mirroring, Mmc1};
