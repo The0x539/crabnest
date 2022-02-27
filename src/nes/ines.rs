@@ -104,6 +104,7 @@ pub fn rom_load(
     let setup = match header.mapper() {
         0 => nrom::setup,
         1 => sxrom::setup,
+        2 => uxrom::setup,
         4 => mmc3::setup,
         7 => axrom::setup,
         _ => unreachable!(),

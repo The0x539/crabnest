@@ -11,4 +11,5 @@ mod mapper {
     pub(super) mod mmc3;
     pub(super) mod nrom;
     pub(super) mod sxrom;
+    pub(super) mod uxrom;
 }

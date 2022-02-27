@@ -202,8 +202,9 @@ pub trait Header {
         }
 
         match self.mapper() {
-            0 | 1 | 4 | 7 => (),
-            n => e!("Unsupported mapper: {n} (supported: 0, 1, 4, 7)"),
+            // TODO: this is starting to get out of hand. the inventory crate might help
+            0 | 1 | 2 | 4 | 7 => (),
+            n => e!("Unsupported mapper: {n} (supported: 0, 1, 2, 4, 7)"),
         }
 
         if self.prg_nvram_size() != 0 && !self.battery_present() {
