@@ -308,9 +308,9 @@ impl PpuState {
         }
     }
 
-    fn shift_shiftregs(&mut self) {
+    fn shift_bg_shiftregs(&mut self) {
         match self.dotnum {
-            2..=257 | 322..=337 => (),
+            1..=256 | 321..=336 => (),
             _ => return,
         }
 
@@ -324,7 +324,7 @@ impl PpuState {
         self.bg_attr_shiftregs[1] |= self.bg_palette >> 1;
     }
 
-    fn load_shiftregs(&mut self) {
+    fn load_bg_shiftregs(&mut self) {
         match self.dotnum {
             n @ (9..=257 | 329..=337) if n % 8 == 1 => (),
             _ => return,
@@ -348,6 +348,22 @@ impl PpuState {
             _ => unreachable!(),
         };
         self.bg_palette = (self.attr_latch >> attr_shift) & 0x3;
+    }
+
+    fn shift_sprite_shiftregs(&mut self) {
+        match self.dotnum {
+            1..=256 => (),
+            _ => return,
+        }
+
+        for (x, sr) in std::iter::zip(&mut self.sprite_xs, &mut self.sprite_bmp_shiftregs) {
+            if *x == 0 {
+                sr[0] <<= 1;
+                sr[1] <<= 1;
+            } else {
+                *x -= 1;
+            }
+        }
     }
 
     fn update_vram_addr(&mut self) {
@@ -422,12 +438,8 @@ impl PpuState {
         }
     }
 
-    fn draw_pixel(&mut self) -> Option<u16> {
+    fn sample_pixel(&self) -> (u16, bool) {
         let m = &self.mask;
-
-        if self.render_disabled() || !(1..=256).contains(&self.dotnum) || self.slnum >= 240 {
-            return None;
-        }
 
         let mut bg_color = 0;
         bg_color |= ((self.bg_bmp_shiftregs[0] << self.fine_xscroll) >> 15) & 1;
@@ -442,11 +454,8 @@ impl PpuState {
         let mut sprite_behind_bg = false;
         let mut is_sprite0 = false;
 
-        for (i, (x, sr)) in
-            std::iter::zip(&mut self.sprite_xs, &mut self.sprite_bmp_shiftregs).enumerate()
-        {
-            *x = x.saturating_sub(1);
-            if *x > 0 {
+        for (i, sr) in self.sprite_bmp_shiftregs.iter().enumerate() {
+            if self.sprite_xs[i] > 0 {
                 continue;
             }
 
@@ -457,9 +466,6 @@ impl PpuState {
                 sprite_behind_bg = self.sprite_attrs[i].behind_bg();
                 is_sprite0 = i == 0 && self.flags.scanline_has_sprite0();
             }
-
-            sr[0] <<= 1;
-            sr[1] <<= 1;
         }
 
         if !m.sprite_en() || (!m.left_sprite_en() && self.dotnum <= 8) {
@@ -473,13 +479,15 @@ impl PpuState {
         let fg_addr = 0x3F11 + 4 * sprite_palette as u16 + sprite_color as u16 - 1;
         let bg_addr = 0x3F01 + 4 * bg_palette as u16 + bg_color as u16 - 1;
 
+        let mut sprite0_hit = false;
+
         let paladdr = match (bg_color, sprite_color) {
             (0, 0) => 0x3F00,
             (0, 1..) => fg_addr,
             (1.., 0) => bg_addr,
             (1.., 1..) => {
                 if is_sprite0 && self.dotnum != 256 {
-                    self.flags.set_sprite0_hit_shouldset(true);
+                    sprite0_hit = true;
                 }
                 if sprite_behind_bg {
                     bg_addr
@@ -494,7 +502,21 @@ impl PpuState {
         pixel_color |= (self.mask.emph_green() as u16) << 7;
         pixel_color |= (self.mask.emph_blue() as u16) << 8;
 
-        Some(pixel_color)
+        (pixel_color, sprite0_hit)
+    }
+
+    fn draw_pixel(&mut self) -> Option<u16> {
+        if self.render_disabled() || !(1..=256).contains(&self.dotnum) || self.slnum >= 240 {
+            return None;
+        }
+
+        let (color, hit) = self.sample_pixel();
+
+        if hit {
+            self.flags.set_sprite0_hit_shouldset(true);
+        }
+
+        Some(color)
     }
 
     fn move_cursor(&mut self) {
@@ -837,11 +859,15 @@ impl Ppu {
 
         self.memfetch();
         self.update_a12();
-        self.state.load_shiftregs();
-        self.state.shift_shiftregs();
-        self.state.update_vram_addr();
 
         self.draw_pixel();
+
+        self.state.load_bg_shiftregs();
+        self.state.shift_bg_shiftregs();
+        self.state.shift_sprite_shiftregs();
+
+        self.state.update_vram_addr();
+
         self.state.spriteeval();
 
         // TODO: should this be moved up and stuff shifted by 1 cycle?
