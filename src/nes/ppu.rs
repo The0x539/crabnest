@@ -837,11 +837,11 @@ impl Ppu {
 
         self.memfetch();
         self.update_a12();
-        self.draw_pixel();
         self.state.load_shiftregs();
         self.state.shift_shiftregs();
         self.state.update_vram_addr();
 
+        self.draw_pixel();
         self.state.spriteeval();
 
         // TODO: should this be moved up and stuff shifted by 1 cycle?
