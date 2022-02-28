@@ -326,7 +326,7 @@ impl PpuState {
 
     fn load_shiftregs(&mut self) {
         match self.dotnum {
-            n @ (8..=256 | 328..=336) if n % 8 == 0 => (),
+            n @ (9..=257 | 329..=337) if n % 8 == 1 => (),
             _ => return,
         }
 
@@ -337,7 +337,7 @@ impl PpuState {
         self.bg_bmp_shiftregs[1] |= self.bmp_latch[1] as u16;
 
         let (xscroll, yscroll) = (
-            self.vram_addr.coarse_xscroll(),
+            self.vram_addr.coarse_xscroll() - 1, // TODO: figure out what the hell this subtraction is
             self.vram_addr.coarse_yscroll(),
         );
         let attr_shift = match (xscroll >> 1 & 1, yscroll >> 1 & 1) {
@@ -347,7 +347,6 @@ impl PpuState {
             (1, 1) => 6,
             _ => unreachable!(),
         };
-
         self.bg_palette = (self.attr_latch >> attr_shift) & 0x3;
     }
 
@@ -443,22 +442,24 @@ impl PpuState {
         let mut sprite_behind_bg = false;
         let mut is_sprite0 = false;
 
-        for i in 0..8 {
-            if self.sprite_xs[i] > 0 {
-                self.sprite_xs[i] -= 1;
+        for (i, (x, sr)) in
+            std::iter::zip(&mut self.sprite_xs, &mut self.sprite_bmp_shiftregs).enumerate()
+        {
+            *x = x.saturating_sub(1);
+            if *x > 0 {
                 continue;
             }
 
             if sprite_color == 0 {
-                sprite_color |= (self.sprite_bmp_shiftregs[i][0] >> 7) & 1;
-                sprite_color |= (self.sprite_bmp_shiftregs[i][1] >> 6) & 2;
+                sprite_color |= (sr[0] >> 7) & 1;
+                sprite_color |= (sr[1] >> 6) & 2;
                 sprite_palette = self.sprite_attrs[i].palette();
                 sprite_behind_bg = self.sprite_attrs[i].behind_bg();
                 is_sprite0 = i == 0 && self.flags.scanline_has_sprite0();
             }
 
-            self.sprite_bmp_shiftregs[i][0] <<= 1;
-            self.sprite_bmp_shiftregs[i][1] <<= 1;
+            sr[0] <<= 1;
+            sr[1] <<= 1;
         }
 
         if !m.sprite_en() || (!m.left_sprite_en() && self.dotnum <= 8) {
@@ -836,12 +837,12 @@ impl Ppu {
 
         self.memfetch();
         self.update_a12();
+        self.draw_pixel();
         self.state.load_shiftregs();
         self.state.shift_shiftregs();
         self.state.update_vram_addr();
-        self.state.spriteeval();
 
-        self.draw_pixel();
+        self.state.spriteeval();
 
         // TODO: should this be moved up and stuff shifted by 1 cycle?
         self.state.move_cursor();
