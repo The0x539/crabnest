@@ -726,7 +726,7 @@ impl Ppu {
             257..=320 => self.sprite_memfetch(),
             321..=336 => self.bg_memfetch(),
             337..=340 => self.mysterious_memfetch(),
-            341.. | _ => panic!(),
+            _ => panic!(),
         }
     }
 
